@@ -1,0 +1,31 @@
+# Binaries
+pg-mcp
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build
+/bin/
+/dist/
+
+# Test
+*.test
+*.out
+coverage.html
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

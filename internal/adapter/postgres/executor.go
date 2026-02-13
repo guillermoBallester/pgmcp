@@ -38,7 +38,7 @@ func (e *Executor) Execute(ctx context.Context, sql string) ([]map[string]any, e
 	if err != nil {
 		return nil, fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	rows, err := tx.Query(ctx, wrappedSQL)
 	if err != nil {

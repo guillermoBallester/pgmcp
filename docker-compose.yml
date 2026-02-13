@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pgmcp
+      POSTGRES_PASSWORD: pgmcp
+      POSTGRES_DB: pgmcp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pgmcp"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  pg-mcp:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://pgmcp:pgmcp@postgres:5432/pgmcp?sslmode=disable
+      READ_ONLY: "true"
+      MAX_ROWS: "100"
+      QUERY_TIMEOUT: "10s"
+    stdin_open: true
+
+volumes:
+  pgdata:

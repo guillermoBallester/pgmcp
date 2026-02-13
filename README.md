@@ -1,14 +1,40 @@
-# pgmcp
+```
+
+  _ __   __ _ _ __ ___   ___ _ __
+ | '_ \ / _` | '_ ` _ \ / __| '_ \
+ | |_) | (_| | | | | | | (__| |_) |
+ | .__/ \__, |_| |_| |_|\___| .__/
+ |_|    |___/                |_|
+
+ PostgreSQL ← MCP → LLM
+```
+
+[![CI](https://github.com/guillermoballestersasso/pgmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/guillermoballestersasso/pgmcp/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![MCP](https://img.shields.io/badge/MCP-2025--03--26-blueviolet)](https://modelcontextprotocol.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
 
 A generic MCP server that connects to **any** PostgreSQL database and lets LLMs explore schemas, discover relationships, and run queries — without the user writing any SQL.
 
-One binary. Any database. No custom code per schema.
+**One binary. Any database. No custom code per schema.**
 
 ## How It Works
 
+```
+┌────────────┐       stdio (JSON-RPC)       ┌─────────┐       SQL        ┌────────────┐
+│            │  ──── list_tables ──────────► │         │ ───────────────► │            │
+│   Claude   │  ──── describe_table ──────► │  pgmcp  │ ◄─────────────── │ PostgreSQL │
+│  (or any   │  ──── query ───────────────► │         │   schema info    │  (any DB)  │
+│  MCP LLM)  │  ◄──── JSON results ──────── │         │   + query rows   │            │
+└────────────┘                               └─────────┘                  └────────────┘
+```
+
 1. Point `pgmcp` at a PostgreSQL database (just a connection string)
-2. An LLM (Claude, GPT, etc.) connects via MCP protocol
-3. The LLM autonomously calls `list_tables` -> `describe_table` -> `query` to discover the schema and answer questions
+2. An LLM connects via MCP protocol
+3. The LLM autonomously calls `list_tables` → `describe_table` → `query` to discover the schema and answer questions
 4. The user gets answers in natural language
 
 The LLM is the intelligence layer. The server is the safe bridge between the model and the database.
@@ -27,11 +53,11 @@ go build -o pg-mcp ./cmd/pg-mcp
 DATABASE_URL="postgres://user:pass@localhost:5432/mydb" ./pg-mcp
 ```
 
-The server communicates over **stdio** (JSON-RPC), which is how MCP clients like Claude Desktop connect to it.
+The server communicates over **stdio** (JSON-RPC), which is how MCP clients like Claude Desktop connect to it. Claude Desktop spawns the binary as a child process — you don't run it manually.
 
 ### Claude Desktop integration
 
-Add this to your `claude_desktop_config.json`:
+Add this to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
@@ -115,34 +141,60 @@ Executes a SQL query and returns results as a JSON array of objects.
 Hexagonal architecture. Single binary, synchronous request-response over stdio.
 
 ```
-cmd/
-  pg-mcp/
-    main.go                        # Entrypoint: config -> pool -> adapters -> MCP server
+pgmcp/
+│
+├── cmd/
+│   └── pg-mcp/
+│       └── main.go                  # Entrypoint: config → pool → adapters → MCP server → stdio
+│
+├── internal/
+│   ├── config/
+│   │   └── config.go                # Config struct, env var loading, validation
+│   │
+│   ├── core/
+│   │   └── ports/
+│   │       ├── explorer.go          # SchemaExplorer interface + DTOs (TableInfo, ColumnInfo, etc.)
+│   │       └── executor.go          # QueryExecutor interface
+│   │
+│   ├── adapter/
+│   │   └── postgres/
+│   │       ├── pool.go              # pgxpool initialization + health check
+│   │       ├── queries.go           # SQL constants (information_schema, pg_catalog)
+│   │       ├── explorer.go          # SchemaExplorer impl — schema-filtered table discovery
+│   │       ├── fetchers.go          # Private helpers: columns, PKs, FKs, indexes
+│   │       ├── executor.go          # QueryExecutor impl — read-only tx, row limit, timeout
+│   │       └── explorer_test.go     # Integration tests (testcontainers + testify)
+│   │
+│   └── app/
+│       ├── server.go                # MCP server factory — wires tools to port implementations
+│       └── tools.go                 # Tool definitions, descriptions, and JSON-RPC handlers
+│
+├── examples/
+│   └── demo/
+│       ├── docker-compose.yml       # Self-contained demo: Postgres + pgmcp + seed data
+│       └── seed.sql                 # E-commerce schema (customers, products, orders)
+│
+├── .github/
+│   └── workflows/
+│       └── ci.yml                   # Build → Test → Lint → Docker
+│
+├── Dockerfile                       # Multi-stage: golang:1.25-alpine → alpine:3.21
+├── docker-compose.yml               # Production: pg-mcp only, bring your own DATABASE_URL
+├── Makefile                         # build, test, lint, demo-up, demo-down, etc.
+└── go.mod
+```
 
-internal/
-  config/
-    config.go                      # Config struct, env loading, validation
+### Data flow
 
-  core/ports/
-    explorer.go                    # SchemaExplorer interface + DTOs
-    executor.go                    # QueryExecutor interface
-
-  adapter/postgres/
-    pool.go                        # pgxpool initialization + ping
-    explorer.go                    # SchemaExplorer implementation
-    fetchers.go                    # Private fetcher methods (columns, PKs, FKs, indexes)
-    queries.go                     # SQL query constants
-    executor.go                    # QueryExecutor implementation (read-only tx, row limit, timeout)
-    explorer_test.go               # Integration tests (testcontainers)
-
-  app/
-    server.go                      # MCP server factory
-    tools.go                       # Tool definitions + handlers
-
-examples/
-  demo/
-    docker-compose.yml             # Postgres + pgmcp wired together
-    seed.sql                       # Sample e-commerce schema + data
+```
+main.go
+  │
+  ├── config.Load()           ← reads env vars (DATABASE_URL, READ_ONLY, etc.)
+  ├── postgres.NewPool()      ← creates pgxpool, pings DB
+  ├── postgres.NewExplorer()  ← implements SchemaExplorer (queries information_schema)
+  ├── postgres.NewExecutor()  ← implements QueryExecutor (read-only tx, row limit)
+  ├── app.NewServer()         ← creates MCP server, registers tools
+  └── server.ServeStdio()     ← blocks, reads JSON-RPC from stdin, writes to stdout
 ```
 
 ### Key design decisions
@@ -237,4 +289,4 @@ The image is a multi-stage build: compiles with `golang:1.25-alpine`, runs on `a
 
 ## License
 
-MIT
+[MIT](LICENSE)

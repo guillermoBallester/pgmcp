@@ -7,8 +7,8 @@ import (
 
 func NewServer(explorer ports.SchemaExplorer, executor ports.QueryExecutor) *server.MCPServer {
 	s := server.NewMCPServer(
-		"pgmcp",
-		"0.1.0",
+		serverName,
+		serverVersion,
 	)
 
 	RegisterTools(s, explorer, executor)

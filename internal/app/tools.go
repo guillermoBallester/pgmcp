@@ -10,34 +10,57 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// Server metadata
+const (
+	serverName    = "pgmcp"
+	serverVersion = "0.1.0"
+)
+
+// Tool descriptions
+const (
+	descListTables = "List all tables in the database with their schemas, estimated row counts, and comments. " +
+		"Call this first to discover what tables are available before describing or querying them."
+
+	descDescribeTable = "Describe a table's structure including columns (name, type, nullable, default, comment), " +
+		"primary keys, foreign keys with referenced tables, and indexes. " +
+		"Use this to understand a table's schema before writing queries. " +
+		"Pay attention to foreign keys — they tell you how tables relate to each other for JOINs."
+
+	descDescribeTableParam = "Name of the table to describe"
+
+	descQuery = "Execute a read-only SQL query against the database and return results as a JSON array of objects. " +
+		"A server-side row limit and query timeout are enforced. " +
+		"Always use specific column names instead of SELECT *. " +
+		"Use JOINs based on foreign keys discovered via describe_table."
+
+	descQueryParam = "SQL query to execute (SELECT only)"
+)
+
 func RegisterTools(s *server.MCPServer, explorer ports.SchemaExplorer, executor ports.QueryExecutor) {
-	// list_tables
 	s.AddTool(
 		mcp.NewTool("list_tables",
-			mcp.WithDescription("List all tables in the database with their schemas, estimated row counts, and comments"),
+			mcp.WithDescription(descListTables),
 		),
 		listTablesHandler(explorer),
 	)
 
-	// describe_table
 	s.AddTool(
 		mcp.NewTool("describe_table",
-			mcp.WithDescription("Describe a table's columns, primary keys, foreign keys, indexes, and comments"),
+			mcp.WithDescription(descDescribeTable),
 			mcp.WithString("table_name",
 				mcp.Required(),
-				mcp.Description("Name of the table to describe"),
+				mcp.Description(descDescribeTableParam),
 			),
 		),
 		describeTableHandler(explorer),
 	)
 
-	// query
 	s.AddTool(
 		mcp.NewTool("query",
-			mcp.WithDescription("Execute a SQL query against the database. Results are returned as a JSON array of objects. Queries run in a read-only transaction with a row limit and timeout enforced server-side."),
+			mcp.WithDescription(descQuery),
 			mcp.WithString("sql",
 				mcp.Required(),
-				mcp.Description("SQL query to execute"),
+				mcp.Description(descQueryParam),
 			),
 		),
 		queryHandler(executor),

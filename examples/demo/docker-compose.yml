@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: demo
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  pg-mcp:
+    build: ../../
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://demo:demo@postgres:5432/demo?sslmode=disable
+      READ_ONLY: "true"
+      MAX_ROWS: "100"
+      QUERY_TIMEOUT: "10s"
+    stdin_open: true
+
+volumes:
+  pgdata:

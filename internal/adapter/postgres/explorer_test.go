@@ -33,6 +33,27 @@ const testSchema = `
 	COMMENT ON TABLE orders IS 'Customer orders';
 `
 
+const testSchemaMulti = `
+	CREATE SCHEMA app;
+	CREATE SCHEMA internal;
+
+	CREATE TABLE app.users (
+		id   SERIAL PRIMARY KEY,
+		name TEXT NOT NULL
+	);
+	COMMENT ON TABLE app.users IS 'App users';
+
+	CREATE TABLE internal.jobs (
+		id     SERIAL PRIMARY KEY,
+		status TEXT NOT NULL DEFAULT 'pending'
+	);
+
+	CREATE TABLE public.config (
+		key   TEXT PRIMARY KEY,
+		value TEXT
+	);
+`
+
 func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
@@ -61,7 +82,40 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	_, err = pool.Exec(ctx, testSchema)
 	require.NoError(t, err)
 
-	// Force stats update so n_live_tup is populated
+	_, err = pool.Exec(ctx, "ANALYZE")
+	require.NoError(t, err)
+
+	return pool
+}
+
+func setupMultiSchemaDB(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	ctx := context.Background()
+
+	container, err := tcpostgres.Run(ctx,
+		"postgres:16-alpine",
+		tcpostgres.WithDatabase("testdb"),
+		tcpostgres.WithUsername("test"),
+		tcpostgres.WithPassword("test"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(30*time.Second),
+		),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+
+	pool, err := pgxpool.New(ctx, connStr)
+	require.NoError(t, err)
+	t.Cleanup(func() { pool.Close() })
+
+	_, err = pool.Exec(ctx, testSchemaMulti)
+	require.NoError(t, err)
+
 	_, err = pool.Exec(ctx, "ANALYZE")
 	require.NoError(t, err)
 
@@ -70,7 +124,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 
 func TestListTables(t *testing.T) {
 	pool := setupTestDB(t)
-	explorer := postgres.NewExplorer(pool)
+	explorer := postgres.NewExplorer(pool, nil)
 	ctx := context.Background()
 
 	tables, err := explorer.ListTables(ctx)
@@ -90,7 +144,7 @@ func TestListTables(t *testing.T) {
 
 func TestDescribeTable_Columns(t *testing.T) {
 	pool := setupTestDB(t)
-	explorer := postgres.NewExplorer(pool)
+	explorer := postgres.NewExplorer(pool, nil)
 	ctx := context.Background()
 
 	detail, err := explorer.DescribeTable(ctx, "customers")
@@ -121,7 +175,7 @@ func TestDescribeTable_Columns(t *testing.T) {
 
 func TestDescribeTable_ForeignKeys(t *testing.T) {
 	pool := setupTestDB(t)
-	explorer := postgres.NewExplorer(pool)
+	explorer := postgres.NewExplorer(pool, nil)
 	ctx := context.Background()
 
 	detail, err := explorer.DescribeTable(ctx, "orders")
@@ -136,7 +190,7 @@ func TestDescribeTable_ForeignKeys(t *testing.T) {
 
 func TestDescribeTable_Indexes(t *testing.T) {
 	pool := setupTestDB(t)
-	explorer := postgres.NewExplorer(pool)
+	explorer := postgres.NewExplorer(pool, nil)
 	ctx := context.Background()
 
 	detail, err := explorer.DescribeTable(ctx, "orders")
@@ -147,18 +201,74 @@ func TestDescribeTable_Indexes(t *testing.T) {
 		indexNames[idx.Name] = idx.IsUnique
 	}
 
-	// PK index is unique
 	assert.True(t, indexNames["orders_pkey"])
-	// Custom index is not unique
 	assert.False(t, indexNames["idx_orders_customer"])
 }
 
 func TestDescribeTable_NotFound(t *testing.T) {
 	pool := setupTestDB(t)
-	explorer := postgres.NewExplorer(pool)
+	explorer := postgres.NewExplorer(pool, nil)
 	ctx := context.Background()
 
 	_, err := explorer.DescribeTable(ctx, "nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "nonexistent")
+}
+
+func TestListTables_SchemaFilter(t *testing.T) {
+	pool := setupMultiSchemaDB(t)
+	ctx := context.Background()
+
+	t.Run("single schema", func(t *testing.T) {
+		explorer := postgres.NewExplorer(pool, []string{"app"})
+		tables, err := explorer.ListTables(ctx)
+		require.NoError(t, err)
+
+		require.Len(t, tables, 1)
+		assert.Equal(t, "app", tables[0].Schema)
+		assert.Equal(t, "users", tables[0].Name)
+	})
+
+	t.Run("multiple schemas", func(t *testing.T) {
+		explorer := postgres.NewExplorer(pool, []string{"app", "public"})
+		tables, err := explorer.ListTables(ctx)
+		require.NoError(t, err)
+
+		assert.Len(t, tables, 2)
+		schemas := map[string]bool{}
+		for _, tbl := range tables {
+			schemas[tbl.Schema] = true
+		}
+		assert.True(t, schemas["app"])
+		assert.True(t, schemas["public"])
+		assert.False(t, schemas["internal"])
+	})
+
+	t.Run("nonexistent schema returns empty", func(t *testing.T) {
+		explorer := postgres.NewExplorer(pool, []string{"doesnotexist"})
+		tables, err := explorer.ListTables(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, tables)
+	})
+
+	t.Run("no filter shows all non-system schemas", func(t *testing.T) {
+		explorer := postgres.NewExplorer(pool, nil)
+		tables, err := explorer.ListTables(ctx)
+		require.NoError(t, err)
+
+		assert.Len(t, tables, 3)
+	})
+}
+
+func TestDescribeTable_SchemaFilter_BlocksAccess(t *testing.T) {
+	pool := setupMultiSchemaDB(t)
+	ctx := context.Background()
+
+	explorer := postgres.NewExplorer(pool, []string{"app"})
+
+	// Table exists in 'public' but explorer is restricted to 'app'
+	_, err := explorer.DescribeTable(ctx, "config")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "config")
+	assert.Contains(t, err.Error(), "app")
 }

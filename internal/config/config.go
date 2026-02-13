@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -12,6 +13,7 @@ type Config struct {
 	ReadOnly     bool
 	MaxRows      int
 	QueryTimeout time.Duration
+	Schemas      []string // empty means all non-system schemas
 }
 
 func Load() (*Config, error) {
@@ -48,6 +50,15 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid QUERY_TIMEOUT value %q: %w", v, err)
 		}
 		cfg.QueryTimeout = d
+	}
+
+	if v := os.Getenv("SCHEMAS"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				cfg.Schemas = append(cfg.Schemas, s)
+			}
+		}
 	}
 
 	return cfg, nil

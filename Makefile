@@ -1,4 +1,4 @@
-.PHONY: build test test-integration lint fmt vet tidy docker-build docker-up docker-down clean
+.PHONY: build test test-short lint fmt vet tidy docker-build demo-up demo-down clean
 
 BINARY := pg-mcp
 PKG    := ./...
@@ -28,12 +28,12 @@ tidy:
 docker-build:
 	docker compose build
 
-docker-up:
-	docker compose up -d
+demo-up:
+	docker compose -f examples/demo/docker-compose.yml up -d
 
-docker-down:
-	docker compose down -v
+demo-down:
+	docker compose -f examples/demo/docker-compose.yml down -v
 
 clean:
 	rm -f $(BINARY)
-	docker compose down -v 2>/dev/null || true
+	docker compose -f examples/demo/docker-compose.yml down -v 2>/dev/null || true

@@ -8,8 +8,18 @@ import (
 )
 
 func (e *Explorer) fetchTableMeta(ctx context.Context, tableName string) (schema, comment string, err error) {
-	err = e.pool.QueryRow(ctx, queryTableMeta, tableName).Scan(&schema, &comment)
+	filter, filterArgs := e.schemaFilter("t.table_schema", 2) // $1 is tableName
+	query := fmt.Sprintf(queryTableMeta, filter)
+
+	args := make([]any, 0, 1+len(filterArgs))
+	args = append(args, tableName)
+	args = append(args, filterArgs...)
+
+	err = e.pool.QueryRow(ctx, query, args...).Scan(&schema, &comment)
 	if err != nil {
+		if len(e.schemas) > 0 {
+			return "", "", fmt.Errorf("table %q not found in schemas %v: %w", tableName, e.schemas, err)
+		}
 		return "", "", fmt.Errorf("table %q not found: %w", tableName, err)
 	}
 	return schema, comment, nil

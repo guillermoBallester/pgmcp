@@ -32,7 +32,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	explorer := postgres.NewExplorer(pool)
+	explorer := postgres.NewExplorer(pool, cfg.Schemas)
 	executor := postgres.NewExecutor(pool, cfg.ReadOnly, cfg.MaxRows, cfg.QueryTimeout)
 
 	mcpServer := app.NewServer(explorer, executor)

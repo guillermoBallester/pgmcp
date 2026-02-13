@@ -1,5 +1,6 @@
 package postgres
 
+// queryListTables has one %s placeholder for the schema filter clause.
 const queryListTables = `
 	SELECT
 		t.table_schema,
@@ -11,10 +12,12 @@ const queryListTables = `
 	FROM information_schema.tables t
 	LEFT JOIN pg_stat_user_tables s
 		ON s.schemaname = t.table_schema AND s.relname = t.table_name
-	WHERE t.table_schema NOT IN ('pg_catalog', 'information_schema')
+	WHERE %s
 		AND t.table_type = 'BASE TABLE'
 	ORDER BY t.table_schema, t.table_name`
 
+// queryTableMeta has one %s placeholder for the schema filter clause.
+// $1 is always table_name; schema filter params start at $2.
 const queryTableMeta = `
 	SELECT t.table_schema,
 		   COALESCE(pg_catalog.obj_description(
@@ -22,7 +25,7 @@ const queryTableMeta = `
 		   ), '')
 	FROM information_schema.tables t
 	WHERE t.table_name = $1
-		AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
+		AND %s
 	LIMIT 1`
 
 const queryColumns = `

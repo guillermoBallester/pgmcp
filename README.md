@@ -184,7 +184,6 @@ pgmcp/
 ├── Dockerfile                       # Multi-stage: golang:1.26-alpine → alpine:3.21
 ├── docker-compose.yml               # Production: pg-mcp only, bring your own DATABASE_URL
 ├── Makefile
-├── CLAUDE.md                        # Development guide for AI assistants
 └── go.mod
 ```
 
@@ -373,14 +372,10 @@ pgmcp is evolving into a SaaS platform that lets LLMs query private, on-premise 
 
 - [ ] `list_schemas` tool — help LLMs navigate multi-schema databases
 - [ ] Schema-qualified table names — accept `schema.table` in `describe_table`
-- [ ] Logging to stderr — structured logging for debugging (stdout is reserved for MCP protocol)
-- [ ] Graceful shutdown — signal handling for clean connection teardown
-- [x] Statement validation — parse SQL and reject DDL/DML in read-only mode before sending to Postgres
 - [ ] `explain` tool — expose `EXPLAIN ANALYZE` for query plan inspection
 - [ ] GoReleaser + GitHub Releases — prebuilt binaries for all platforms
 - [ ] NPX wrapper — `npx pgmcp` for zero-install usage from Claude Desktop
 - [ ] pgvector support — semantic search tool if pgvector extension is detected
-- [ ] Write mode — `insert`, `update`, `delete` tools with confirmation prompts
 - [ ] Multi-database — connect to multiple databases from one server instance
 
 ### SaaS platform (build order)

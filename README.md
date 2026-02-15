@@ -9,7 +9,7 @@
  PostgreSQL ← MCP → LLM
 ```
 
-[![CI](https://github.com/guillermoballestersasso/pgmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/guillermoballestersasso/pgmcp/actions/workflows/ci.yml)
+[![CI](https://github.com/guillermoBallester/pgmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/guillermoBallester/pgmcp/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![MCP](https://img.shields.io/badge/MCP-2025--03--26-blueviolet)](https://modelcontextprotocol.io)

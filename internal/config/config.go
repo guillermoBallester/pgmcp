@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ type Config struct {
 	MaxRows      int
 	QueryTimeout time.Duration
 	Schemas      []string // empty means all non-system schemas
+	LogLevel     slog.Level
 }
 
 func Load() (*Config, error) {
@@ -52,6 +54,14 @@ func Load() (*Config, error) {
 		cfg.QueryTimeout = d
 	}
 
+	if v := os.Getenv("LOG_LEVEL"); v != "" {
+		level, err := parseLogLevel(v)
+		if err != nil {
+			return nil, err
+		}
+		cfg.LogLevel = level
+	}
+
 	if v := os.Getenv("SCHEMAS"); v != "" {
 		for _, s := range strings.Split(v, ",") {
 			s = strings.TrimSpace(s)
@@ -62,4 +72,19 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseLogLevel(s string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return slog.LevelInfo, fmt.Errorf("invalid LOG_LEVEL value %q: must be debug, info, warn, or error", s)
+	}
 }

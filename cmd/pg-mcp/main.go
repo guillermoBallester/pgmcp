@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/guillermoballestersasso/pgmcp/internal/adapter/postgres"
@@ -26,6 +27,20 @@ func run() error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// Structured logging on stderr (stdout is reserved for MCP JSON-RPC).
+	// Uses slog with OTEL semantic conventions so a future otelslog bridge
+	// is a one-line handler swap.
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: cfg.LogLevel,
+	}))
+
+	logger.Info("starting pgmcp",
+		slog.String("log_level", cfg.LogLevel.String()),
+		slog.Bool("read_only", cfg.ReadOnly),
+		slog.Int("max_rows", cfg.MaxRows),
+		slog.String("query_timeout", cfg.QueryTimeout.String()),
+	)
+
 	ctx := context.Background()
 
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
@@ -33,6 +48,10 @@ func run() error {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 	defer pool.Close()
+
+	logger.Info("database pool connected",
+		slog.String("db.system", "postgresql"),
+	)
 
 	// Adapters (driven/outbound)
 	explorer := postgres.NewExplorer(pool, cfg.Schemas)
@@ -42,10 +61,10 @@ func run() error {
 	validator := domain.NewQueryValidator()
 
 	// Services (application layer)
-	explorerSvc := service.NewExplorerService(explorer)
-	querySvc := service.NewQueryService(validator, executor)
+	explorerSvc := service.NewExplorerService(explorer, logger)
+	querySvc := service.NewQueryService(validator, executor, logger)
 
-	mcpServer := app.NewServer(explorerSvc, querySvc)
+	mcpServer := app.NewServer(explorerSvc, querySvc, logger)
 
 	return server.ServeStdio(mcpServer)
 }

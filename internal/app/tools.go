@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/guillermoballestersasso/pgmcp/internal/core/ports"
+	"github.com/guillermoballestersasso/pgmcp/internal/core/service"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -36,7 +36,7 @@ const (
 	descQueryParam = "SQL query to execute (SELECT only)"
 )
 
-func RegisterTools(s *server.MCPServer, explorer ports.SchemaExplorer, executor ports.QueryExecutor) {
+func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query *service.QueryService) {
 	s.AddTool(
 		mcp.NewTool("list_tables",
 			mcp.WithDescription(descListTables),
@@ -63,11 +63,11 @@ func RegisterTools(s *server.MCPServer, explorer ports.SchemaExplorer, executor 
 				mcp.Description(descQueryParam),
 			),
 		),
-		queryHandler(executor),
+		queryHandler(query),
 	)
 }
 
-func listTablesHandler(explorer ports.SchemaExplorer) server.ToolHandlerFunc {
+func listTablesHandler(explorer *service.ExplorerService) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tables, err := explorer.ListTables(ctx)
 		if err != nil {
@@ -83,7 +83,7 @@ func listTablesHandler(explorer ports.SchemaExplorer) server.ToolHandlerFunc {
 	}
 }
 
-func describeTableHandler(explorer ports.SchemaExplorer) server.ToolHandlerFunc {
+func describeTableHandler(explorer *service.ExplorerService) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tableName, ok := request.GetArguments()["table_name"].(string)
 		if !ok || tableName == "" {
@@ -104,14 +104,14 @@ func describeTableHandler(explorer ports.SchemaExplorer) server.ToolHandlerFunc 
 	}
 }
 
-func queryHandler(executor ports.QueryExecutor) server.ToolHandlerFunc {
+func queryHandler(query *service.QueryService) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		sql, ok := request.GetArguments()["sql"].(string)
 		if !ok || sql == "" {
 			return mcp.NewToolResultError("sql is required"), nil
 		}
 
-		results, err := executor.Execute(ctx, sql)
+		results, err := query.Execute(ctx, sql)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
 		}

@@ -8,6 +8,8 @@ import (
 	"github.com/guillermoballestersasso/pgmcp/internal/adapter/postgres"
 	"github.com/guillermoballestersasso/pgmcp/internal/app"
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
+	"github.com/guillermoballestersasso/pgmcp/internal/core/domain"
+	"github.com/guillermoballestersasso/pgmcp/internal/core/service"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -32,10 +34,18 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// Adapters (driven/outbound)
 	explorer := postgres.NewExplorer(pool, cfg.Schemas)
 	executor := postgres.NewExecutor(pool, cfg.ReadOnly, cfg.MaxRows, cfg.QueryTimeout)
 
-	mcpServer := app.NewServer(explorer, executor)
+	// Domain
+	validator := domain.NewQueryValidator()
+
+	// Services (application layer)
+	explorerSvc := service.NewExplorerService(explorer)
+	querySvc := service.NewQueryService(validator, executor)
+
+	mcpServer := app.NewServer(explorerSvc, querySvc)
 
 	return server.ServeStdio(mcpServer)
 }

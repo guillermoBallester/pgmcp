@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/guillermoballestersasso/pgmcp/internal/core/service"
+	"github.com/guillermoballestersasso/pgmcp/pkg/core/service"
 	"github.com/mark3labs/mcp-go/server"
 )
 

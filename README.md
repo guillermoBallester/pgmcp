@@ -147,15 +147,21 @@ pgmcp/
 │   └── pg-mcp/
 │       └── main.go                  # Entrypoint: config → pool → adapters → MCP server → stdio
 │
-├── internal/
-│   ├── config/
-│   │   └── config.go                # Config struct, env var loading, validation
-│   │
+├── pkg/
 │   ├── core/
-│   │   └── ports/
-│   │       ├── explorer.go          # SchemaExplorer interface + DTOs (TableInfo, ColumnInfo, etc.)
-│   │       └── executor.go          # QueryExecutor interface
-│   │
+│   │   ├── ports/
+│   │   │   ├── explorer.go          # SchemaExplorer interface + DTOs (TableInfo, ColumnInfo, etc.)
+│   │   │   └── executor.go          # QueryExecutor interface
+│   │   ├── domain/
+│   │   │   └── validator.go         # SQL validation: whitelist SELECT/EXPLAIN, reject DDL/DML
+│   │   └── service/
+│   │       ├── explorer_service.go  # Schema exploration orchestration
+│   │       └── query_service.go     # Query validation + execution orchestration
+│   └── app/
+│       ├── server.go                # MCP server factory — wires tools to port implementations
+│       └── tools.go                 # Tool definitions, descriptions, and JSON-RPC handlers
+│
+├── internal/
 │   ├── adapter/
 │   │   └── postgres/
 │   │       ├── pool.go              # pgxpool initialization + health check
@@ -164,23 +170,21 @@ pgmcp/
 │   │       ├── fetchers.go          # Private helpers: columns, PKs, FKs, indexes
 │   │       ├── executor.go          # QueryExecutor impl — read-only tx, row limit, timeout
 │   │       └── explorer_test.go     # Integration tests (testcontainers + testify)
-│   │
-│   └── app/
-│       ├── server.go                # MCP server factory — wires tools to port implementations
-│       └── tools.go                 # Tool definitions, descriptions, and JSON-RPC handlers
+│   └── config/
+│       └── config.go                # Config struct, env var loading, validation
 │
-├── examples/
-│   └── demo/
-│       ├── docker-compose.yml       # Self-contained demo: Postgres + pgmcp + seed data
-│       └── seed.sql                 # E-commerce schema (customers, products, orders)
+├── examples/demo/
+│   ├── docker-compose.yml           # Self-contained demo: Postgres + pgmcp + seed data
+│   └── seed.sql                     # E-commerce schema (customers, products, orders)
 │
-├── .github/
-│   └── workflows/
-│       └── ci.yml                   # Build → Test → Lint → Docker
+├── .github/workflows/
+│   ├── ci.yml                       # Build → Test → Lint → Docker
+│   └── security.yml                 # Trivy + govulncheck + CodeQL
 │
 ├── Dockerfile                       # Multi-stage: golang:1.26-alpine → alpine:3.21
 ├── docker-compose.yml               # Production: pg-mcp only, bring your own DATABASE_URL
-├── Makefile                         # build, test, lint, demo-up, demo-down, etc.
+├── Makefile
+├── CLAUDE.md                        # Development guide for AI assistants
 └── go.mod
 ```
 
@@ -204,6 +208,7 @@ main.go
 - **No SQLC** — queries against system catalogs are inherently dynamic. Using pgx directly is simpler.
 - **No AI/LLM dependencies** — the server has zero knowledge of which LLM is calling it. It's a pure MCP tool provider.
 - **Schema filtering** — the `SCHEMAS` env var acts as an allowlist, restricting what the LLM can see and query. Useful for databases with internal schemas that shouldn't be exposed.
+- **`pkg/` for shared, `internal/` for private** — packages in `pkg/` (ports, domain, services, MCP wiring) are importable by external modules. The Postgres adapter stays in `internal/` because it's only used by the standalone binary and the bridge agent (both in this repo).
 
 ### Safety layer
 
@@ -273,13 +278,47 @@ docker build -t pgmcp .
 
 The image is a multi-stage build: compiles with `golang:1.26-alpine`, runs on `alpine:3.21` (~14MB binary).
 
+## SaaS Mode (Coming Soon)
+
+pgmcp is evolving into a SaaS product that lets LLMs query private, on-premise databases without VPNs or inbound firewall rules.
+
+### How it works
+
+1. You deploy a lightweight **bridge agent** (`pgmcp-agent`) next to your database
+2. The agent establishes an **outbound** WebSocket connection to the pgmcp cloud server
+3. Claude (or any MCP client) connects to the cloud server
+4. Queries flow through the tunnel — your database credentials never leave your infrastructure
+
+```
+┌──────────────┐   SSE/HTTP (MCP)    ┌──────────────────┐  yamux stream   ┌───────────────┐
+│              │ ──── list_tables ──► │                  │ ──────────────► │               │
+│  Claude /    │ ──── describe   ──► │  pgmcp cloud     │                 │  pgmcp-agent  │
+│  any MCP     │ ──── query      ──► │                  │ ◄────────────── │  (on-prem)    │
+│  client      │ ◄── JSON results ── │                  │  JSON response  │               │
+└──────────────┘                     └──────────────────┘                  └───────┬───────┘
+                                                            ▲                      │
+                                                            │ outbound WS          │ local
+                                                            │ (port 443)           │ pgxpool
+                                                            │                      ▼
+                                                         No inbound        ┌──────────────┐
+                                                         ports needed      │  Your DB     │
+                                                                           └──────────────┘
+```
+
+### Security
+
+- **Zero-trust:** The cloud server never stores or sees database credentials
+- **Outbound only:** The agent initiates the connection — no open ports, no VPN
+- **Defense-in-depth:** SQL validation on both server and agent (9 security layers)
+- **Open source agent:** Every line of code running on your infrastructure is auditable
+
 ## Roadmap
 
 - [ ] `list_schemas` tool — help LLMs navigate multi-schema databases
 - [ ] Schema-qualified table names — accept `schema.table` in `describe_table`
 - [ ] Logging to stderr — structured logging for debugging (stdout is reserved for MCP protocol)
 - [ ] Graceful shutdown — signal handling for clean connection teardown
-- [ ] Statement validation — parse SQL and reject DDL/DML in read-only mode before sending to Postgres
+- [x] Statement validation — parse SQL and reject DDL/DML in read-only mode before sending to Postgres
 - [ ] `explain` tool — expose `EXPLAIN ANALYZE` for query plan inspection
 - [ ] GoReleaser + GitHub Releases — prebuilt binaries for all platforms
 - [ ] NPX wrapper — `npx pgmcp` for zero-install usage from Claude Desktop

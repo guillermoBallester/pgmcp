@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/guillermoballestersasso/pgmcp/internal/core/domain"
-	"github.com/guillermoballestersasso/pgmcp/internal/core/ports"
+	"github.com/guillermoballestersasso/pgmcp/pkg/core/domain"
+	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
 )
 
 // QueryService orchestrates SQL validation (domain) and execution (infrastructure).

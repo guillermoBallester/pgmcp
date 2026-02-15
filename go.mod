@@ -3,6 +3,8 @@ module github.com/guillermoballestersasso/pgmcp
 go 1.26.0
 
 require (
+	github.com/coder/websocket v1.8.14
+	github.com/hashicorp/yamux v0.1.2
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/pganalyze/pg_query_go/v6 v6.2.2

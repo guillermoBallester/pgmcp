@@ -10,7 +10,7 @@
 ```
 
 [![CI](https://github.com/guillermoBallester/pgmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/guillermoBallester/pgmcp/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![MCP](https://img.shields.io/badge/MCP-2025--03--26-blueviolet)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -178,7 +178,7 @@ pgmcp/
 │   └── workflows/
 │       └── ci.yml                   # Build → Test → Lint → Docker
 │
-├── Dockerfile                       # Multi-stage: golang:1.25-alpine → alpine:3.21
+├── Dockerfile                       # Multi-stage: golang:1.26-alpine → alpine:3.21
 ├── docker-compose.yml               # Production: pg-mcp only, bring your own DATABASE_URL
 ├── Makefile                         # build, test, lint, demo-up, demo-down, etc.
 └── go.mod
@@ -219,7 +219,7 @@ Since an LLM is generating SQL, guardrails are essential:
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - Docker (for tests and demo)
 
 ### Commands
@@ -271,7 +271,7 @@ DATABASE_URL="postgres://user:pass@host:5432/mydb" docker compose up
 docker build -t pgmcp .
 ```
 
-The image is a multi-stage build: compiles with `golang:1.25-alpine`, runs on `alpine:3.21` (~14MB binary).
+The image is a multi-stage build: compiles with `golang:1.26-alpine`, runs on `alpine:3.21` (~14MB binary).
 
 ## Roadmap
 

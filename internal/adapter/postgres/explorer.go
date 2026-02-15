@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/guillermoballestersasso/pgmcp/internal/core/ports"
+	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

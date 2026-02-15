@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/guillermoballestersasso/pgmcp/internal/core/ports"
+	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
 )
 
 func (e *Explorer) fetchTableMeta(ctx context.Context, tableName string) (schema, comment string, err error) {

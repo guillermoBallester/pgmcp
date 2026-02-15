@@ -6,10 +6,10 @@ import (
 	"os"
 
 	"github.com/guillermoballestersasso/pgmcp/internal/adapter/postgres"
-	"github.com/guillermoballestersasso/pgmcp/internal/app"
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
-	"github.com/guillermoballestersasso/pgmcp/internal/core/domain"
-	"github.com/guillermoballestersasso/pgmcp/internal/core/service"
+	"github.com/guillermoballestersasso/pgmcp/pkg/app"
+	"github.com/guillermoballestersasso/pgmcp/pkg/core/domain"
+	"github.com/guillermoballestersasso/pgmcp/pkg/core/service"
 	"github.com/mark3labs/mcp-go/server"
 )
 

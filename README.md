@@ -208,7 +208,7 @@ main.go
 - **No SQLC** — queries against system catalogs are inherently dynamic. Using pgx directly is simpler.
 - **No AI/LLM dependencies** — the server has zero knowledge of which LLM is calling it. It's a pure MCP tool provider.
 - **Schema filtering** — the `SCHEMAS` env var acts as an allowlist, restricting what the LLM can see and query. Useful for databases with internal schemas that shouldn't be exposed.
-- **`pkg/` for shared, `internal/` for private** — packages in `pkg/` (ports, domain, services, MCP wiring) are importable by external modules. The Postgres adapter stays in `internal/` because it's only used by the standalone binary and the bridge agent (both in this repo).
+- **`pkg/` for shared, `internal/` for private** — packages in `pkg/` (ports, domain, services, MCP wiring) are importable by external modules. The Postgres adapter and SaaS platform code stay in `internal/` because they're private to this module. Go's `internal/` convention enforces the same privacy boundary that a separate repo would.
 
 ### Safety layer
 
@@ -219,6 +219,61 @@ Since an LLM is generating SQL, guardrails are essential:
 3. **Query timeout** — `context.WithTimeout` on every execution
 4. **Schema filtering** — restrict visibility to specific schemas
 5. **Connection pooling** — pgxpool with bounded connections to prevent resource exhaustion
+
+### Query Policies (Coming Soon)
+
+The current safety layer covers the basics. Query policies take governance further — they're the feature that turns a CTO's "no" into "yes" when teams want AI access to production databases.
+
+Planned policy capabilities:
+
+- **Table allow/deny lists** — restrict which tables the LLM can see and query
+- **Column masking** — mask or hide sensitive columns (e.g., emails, SSNs) in query results
+- **Row filtering** — automatically inject row-level filters (e.g., only recent data)
+- **Rate limiting** — cap queries per hour, max rows per query, block full table scans
+
+Example policy configuration (planned):
+
+```yaml
+policy:
+  allow_tables:
+    - orders
+    - products
+    - categories
+  deny_tables:
+    - users
+    - payments
+  tables:
+    customers:
+      allow_columns: [id, name, city, created_at]
+      mask_columns:
+        email: "****@****.com"
+      deny_columns: [ssn, tax_id]
+    orders:
+      row_filter: "created_at > NOW() - INTERVAL '90 days'"
+  max_queries_per_hour: 100
+  max_rows_per_query: 50
+```
+
+Policies are evaluated at two layers for defense in depth: the cloud server enforces identity-based policies (user X can only access tables Y, Z), while the agent enforces SQL-level policies (no DDL, row limit, timeout).
+
+### Audit Trail (Coming Soon)
+
+pgmcp sits between the LLM and the database — it sees both the MCP context (user, tool, session) and the SQL context (query, results, timing). This unique position enables audit capabilities that Postgres logs alone cannot provide.
+
+Every MCP call will be logged with:
+
+- **Timestamp** and **duration**
+- **User identity** (who triggered the query)
+- **MCP tool** invoked (`list_tables`, `describe_table`, `query`)
+- **SQL executed** and **rows returned**
+- **Policy evaluation results** (passed, blocked, warnings)
+- **Session and agent IDs** for full traceability
+
+Why this matters:
+
+- **Compliance** — HIPAA, SOC2, and PCI-DSS require logging access to sensitive data. Without audit trails, AI database access is shadow IT. With them, it's compliant.
+- **Incident response** — when a customer reports a data concern, the security team can search exactly what queries ran, who ran them, and what data was returned.
+- **Usage visibility** — CTOs can see whether AI database access is delivering value: which databases, how many queries, which teams.
 
 ## Development
 
@@ -280,7 +335,7 @@ The image is a multi-stage build: compiles with `golang:1.26-alpine`, runs on `a
 
 ## SaaS Mode (Coming Soon)
 
-pgmcp is evolving into a SaaS product that lets LLMs query private, on-premise databases without VPNs or inbound firewall rules.
+pgmcp is evolving into a SaaS platform that lets LLMs query private, on-premise databases without VPNs or inbound firewall rules. All SaaS components live in this repo — the agent binary under `cmd/pgmcp-agent/`, shared tunnel types under `pkg/tunnel/`, and the cloud server under `internal/saas/` (private to this module).
 
 ### How it works
 
@@ -314,6 +369,8 @@ pgmcp is evolving into a SaaS product that lets LLMs query private, on-premise d
 
 ## Roadmap
 
+### Standalone improvements
+
 - [ ] `list_schemas` tool — help LLMs navigate multi-schema databases
 - [ ] Schema-qualified table names — accept `schema.table` in `describe_table`
 - [ ] Logging to stderr — structured logging for debugging (stdout is reserved for MCP protocol)
@@ -325,6 +382,15 @@ pgmcp is evolving into a SaaS product that lets LLMs query private, on-premise d
 - [ ] pgvector support — semantic search tool if pgvector extension is detected
 - [ ] Write mode — `insert`, `update`, `delete` tools with confirmation prompts
 - [ ] Multi-database — connect to multiple databases from one server instance
+
+### SaaS platform (build order)
+
+- [ ] **Tunnel MVP** — WebSocket agent, cloud proxy, basic API-key auth
+- [ ] **Audit log v1** — log every MCP call with user/session/SQL context
+- [ ] **Table-level policies** — allow/deny lists for tables, configured per agent
+- [ ] **MySQL adapter** — second database backend, validate "any database" positioning
+- [ ] **Dashboard** — audit log viewer, agent status, usage stats
+- [ ] **Column masking** — mask/hide sensitive columns in query results
 
 ## License
 

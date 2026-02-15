@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/guillermoballestersasso/pgmcp/pkg/core/service"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -36,12 +38,12 @@ const (
 	descQueryParam = "SQL query to execute (SELECT only)"
 )
 
-func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query *service.QueryService) {
+func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query *service.QueryService, logger *slog.Logger) {
 	s.AddTool(
 		mcp.NewTool("list_tables",
 			mcp.WithDescription(descListTables),
 		),
-		listTablesHandler(explorer),
+		listTablesHandler(explorer, logger),
 	)
 
 	s.AddTool(
@@ -52,7 +54,7 @@ func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query
 				mcp.Description(descDescribeTableParam),
 			),
 		),
-		describeTableHandler(explorer),
+		describeTableHandler(explorer, logger),
 	)
 
 	s.AddTool(
@@ -63,14 +65,25 @@ func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query
 				mcp.Description(descQueryParam),
 			),
 		),
-		queryHandler(query),
+		queryHandler(query, logger),
 	)
 }
 
-func listTablesHandler(explorer *service.ExplorerService) server.ToolHandlerFunc {
+func listTablesHandler(explorer *service.ExplorerService, logger *slog.Logger) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
+		logger.InfoContext(ctx, "tool call received",
+			slog.String("rpc.method", "tools/call"),
+			slog.String("mcp.tool", "list_tables"),
+		)
+
 		tables, err := explorer.ListTables(ctx)
 		if err != nil {
+			logger.ErrorContext(ctx, "tool call failed",
+				slog.String("mcp.tool", "list_tables"),
+				slog.Duration("duration", time.Since(start)),
+				slog.String("error.type", "tool_error"),
+			)
 			return mcp.NewToolResultError(fmt.Sprintf("failed to list tables: %v", err)), nil
 		}
 
@@ -79,19 +92,37 @@ func listTablesHandler(explorer *service.ExplorerService) server.ToolHandlerFunc
 			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal results: %v", err)), nil
 		}
 
+		logger.InfoContext(ctx, "tool call completed",
+			slog.String("mcp.tool", "list_tables"),
+			slog.Int("db.response.rows", len(tables)),
+			slog.Duration("duration", time.Since(start)),
+		)
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }
 
-func describeTableHandler(explorer *service.ExplorerService) server.ToolHandlerFunc {
+func describeTableHandler(explorer *service.ExplorerService, logger *slog.Logger) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tableName, ok := request.GetArguments()["table_name"].(string)
 		if !ok || tableName == "" {
 			return mcp.NewToolResultError("table_name is required"), nil
 		}
 
+		start := time.Now()
+		logger.InfoContext(ctx, "tool call received",
+			slog.String("rpc.method", "tools/call"),
+			slog.String("mcp.tool", "describe_table"),
+			slog.String("db.collection.name", tableName),
+		)
+
 		detail, err := explorer.DescribeTable(ctx, tableName)
 		if err != nil {
+			logger.ErrorContext(ctx, "tool call failed",
+				slog.String("mcp.tool", "describe_table"),
+				slog.String("db.collection.name", tableName),
+				slog.Duration("duration", time.Since(start)),
+				slog.String("error.type", "tool_error"),
+			)
 			return mcp.NewToolResultError(fmt.Sprintf("failed to describe table: %v", err)), nil
 		}
 
@@ -100,19 +131,35 @@ func describeTableHandler(explorer *service.ExplorerService) server.ToolHandlerF
 			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal results: %v", err)), nil
 		}
 
+		logger.InfoContext(ctx, "tool call completed",
+			slog.String("mcp.tool", "describe_table"),
+			slog.String("db.collection.name", tableName),
+			slog.Duration("duration", time.Since(start)),
+		)
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }
 
-func queryHandler(query *service.QueryService) server.ToolHandlerFunc {
+func queryHandler(query *service.QueryService, logger *slog.Logger) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		sql, ok := request.GetArguments()["sql"].(string)
 		if !ok || sql == "" {
 			return mcp.NewToolResultError("sql is required"), nil
 		}
 
+		start := time.Now()
+		logger.InfoContext(ctx, "tool call received",
+			slog.String("rpc.method", "tools/call"),
+			slog.String("mcp.tool", "query"),
+		)
+
 		results, err := query.Execute(ctx, sql)
 		if err != nil {
+			logger.ErrorContext(ctx, "tool call failed",
+				slog.String("mcp.tool", "query"),
+				slog.Duration("duration", time.Since(start)),
+				slog.String("error.type", "tool_error"),
+			)
 			return mcp.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
 		}
 
@@ -121,6 +168,11 @@ func queryHandler(query *service.QueryService) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal results: %v", err)), nil
 		}
 
+		logger.InfoContext(ctx, "tool call completed",
+			slog.String("mcp.tool", "query"),
+			slog.Int("db.response.rows", len(results)),
+			slog.Duration("duration", time.Since(start)),
+		)
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }

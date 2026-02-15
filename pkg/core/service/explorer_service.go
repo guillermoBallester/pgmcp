@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"log/slog"
+	"time"
 
 	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
 )
@@ -10,16 +12,58 @@ import (
 // future home for schema-level validation (e.g., table name allowlists).
 type ExplorerService struct {
 	explorer ports.SchemaExplorer
+	logger   *slog.Logger
 }
 
-func NewExplorerService(explorer ports.SchemaExplorer) *ExplorerService {
-	return &ExplorerService{explorer: explorer}
+func NewExplorerService(explorer ports.SchemaExplorer, logger *slog.Logger) *ExplorerService {
+	return &ExplorerService{
+		explorer: explorer,
+		logger:   logger,
+	}
 }
 
 func (s *ExplorerService) ListTables(ctx context.Context) ([]ports.TableInfo, error) {
-	return s.explorer.ListTables(ctx)
+	start := time.Now()
+	tables, err := s.explorer.ListTables(ctx)
+	duration := time.Since(start)
+
+	if err != nil {
+		s.logger.ErrorContext(ctx, "list tables failed",
+			slog.String("db.operation.name", "list_tables"),
+			slog.Duration("duration", duration),
+			slog.String("error.type", "query_error"),
+		)
+		return nil, err
+	}
+
+	s.logger.InfoContext(ctx, "list tables",
+		slog.String("db.operation.name", "list_tables"),
+		slog.Int("db.response.rows", len(tables)),
+		slog.Duration("duration", duration),
+	)
+	return tables, nil
 }
 
 func (s *ExplorerService) DescribeTable(ctx context.Context, tableName string) (*ports.TableDetail, error) {
-	return s.explorer.DescribeTable(ctx, tableName)
+	start := time.Now()
+	detail, err := s.explorer.DescribeTable(ctx, tableName)
+	duration := time.Since(start)
+
+	if err != nil {
+		s.logger.ErrorContext(ctx, "describe table failed",
+			slog.String("db.operation.name", "describe_table"),
+			slog.String("db.collection.name", tableName),
+			slog.Duration("duration", duration),
+			slog.String("error.type", "query_error"),
+		)
+		return nil, err
+	}
+
+	s.logger.InfoContext(ctx, "describe table",
+		slog.String("db.operation.name", "describe_table"),
+		slog.String("db.collection.name", tableName),
+		slog.Int("db.response.columns", len(detail.Columns)),
+		slog.Duration("duration", duration),
+	)
+	return detail, nil
 }

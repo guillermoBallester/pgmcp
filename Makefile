@@ -1,5 +1,6 @@
 .PHONY: build-agent build-server build-all test test-short lint fmt vet tidy \
-        docker-build docker-up docker-down demo-up demo-down clean
+        docker-build docker-up docker-down demo-up demo-down clean \
+        run-server run-agent run-tunnel
 
 build-agent:
 	go build -o bin/pgmcp-agent ./cmd/pgmcp-agent
@@ -42,6 +43,43 @@ demo-up:
 
 demo-down:
 	docker compose -f examples/demo/docker-compose.yml down -v
+
+# --- RNAcentral tunnel test ---
+# Usage:
+#   Terminal 1: make run-server
+#   Terminal 2: make run-agent
+# Or both at once (server backgrounded):
+#   make run-tunnel
+#
+# Override DATABASE_URL to point at a different DB:
+#   make run-agent DATABASE_URL="postgresql://..."
+
+TUNNEL_API_KEY  ?= dev-test-key
+LISTEN_ADDR     ?= :8080
+DATABASE_URL    ?= postgresql://reader:NWDMCE5xdipIjRrp@hh-pgsql-public.ebi.ac.uk:5432/pfmegrnargs
+
+run-server: build-server
+	API_KEYS=$(TUNNEL_API_KEY) LISTEN_ADDR=$(LISTEN_ADDR) ./bin/pgmcp-server
+
+run-agent: build-agent
+	DATABASE_URL=$(DATABASE_URL) \
+	TUNNEL_URL=ws://localhost$(LISTEN_ADDR)/tunnel \
+	API_KEY=$(TUNNEL_API_KEY) \
+	SCHEMAS=rnacen \
+	./bin/pgmcp-agent
+
+run-tunnel: build-all
+	@echo "Starting server on $(LISTEN_ADDR)..."
+	@API_KEYS=$(TUNNEL_API_KEY) LISTEN_ADDR=$(LISTEN_ADDR) ./bin/pgmcp-server & \
+	SERVER_PID=$$!; \
+	sleep 1; \
+	echo "Starting agent (DB: RNAcentral)..."; \
+	DATABASE_URL=$(DATABASE_URL) \
+	TUNNEL_URL=ws://localhost$(LISTEN_ADDR)/tunnel \
+	API_KEY=$(TUNNEL_API_KEY) \
+	SCHEMAS=rnacen \
+	./bin/pgmcp-agent; \
+	kill $$SERVER_PID 2>/dev/null || true
 
 clean:
 	rm -rf bin/

@@ -44,37 +44,64 @@ The LLM is the intelligence layer. The server is the safe bridge between the mod
 ### Build from source
 
 ```bash
-go build -o pg-mcp ./cmd/pg-mcp
+make build-all    # builds bin/pgmcp-server and bin/pgmcp-agent
 ```
 
-### Run
+### Run the tunnel (server + agent)
+
+pgmcp uses a tunnel architecture: the **server** exposes MCP over HTTP, the **agent** runs next to the database and connects outbound to the server.
 
 ```bash
-DATABASE_URL="postgres://user:pass@localhost:5432/mydb" ./pg-mcp
+# Terminal 1 — start the server
+make run-server
+
+# Terminal 2 — start the agent (connects to RNAcentral public DB by default)
+make run-agent
 ```
 
-The server communicates over **stdio** (JSON-RPC), which is how MCP clients like Claude Desktop connect to it. Claude Desktop spawns the binary as a child process — you don't run it manually.
+Or run both in a single terminal:
+
+```bash
+make run-tunnel
+```
+
+Verify it's working:
+
+```bash
+curl http://localhost:8080/health   # → {"status":"ok"} (server is alive)
+curl http://localhost:8080/ready    # → {"status":"ready"} (agent connected)
+```
+
+To point at your own database:
+
+```bash
+make run-agent DATABASE_URL="postgres://user:pass@host:5432/mydb"
+```
 
 ### Claude Desktop integration
+
+Claude Desktop speaks MCP over stdio, so you need a bridge to connect it to the server's HTTP endpoint. Use [`@pyroprompts/mcp-stdio-to-streamable-http-adapter`](https://www.npmjs.com/package/@pyroprompts/mcp-stdio-to-streamable-http-adapter) (requires Node.js).
 
 Add this to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
   "mcpServers": {
-    "my-database": {
-      "command": "/path/to/pg-mcp",
+    "pgmcp": {
+      "command": "npx",
+      "args": [
+        "@pyroprompts/mcp-stdio-to-streamable-http-adapter"
+      ],
       "env": {
-        "DATABASE_URL": "postgres://readonly:pass@host:5432/mydb",
-        "READ_ONLY": "true",
-        "MAX_ROWS": "50"
+        "URI": "http://localhost:8080/mcp",
+        "MCP_NAME": "pgmcp"
       }
     }
   }
 }
 ```
 
-You can run multiple instances pointing at different databases — same binary, different env vars.
+Make sure the server and agent are running (`make run-server` + `make run-agent`) before restarting Claude Desktop.
 
 ### Try it with the demo
 
@@ -92,10 +119,11 @@ make demo-down   # tear it down
 
 ### Try it with a public database
 
-You can test against [RNAcentral](https://rnacentral.org/help/public-database), a public genomics database hosted by the European Bioinformatics Institute:
+The default `make run-agent` connects to [RNAcentral](https://rnacentral.org/help/public-database), a public genomics database hosted by the European Bioinformatics Institute:
 
 ```bash
-DATABASE_URL="postgres://reader:NWDMCE5xdipIjRrp@hh-pgsql-public.ebi.ac.uk:5432/pfmegrnargs" ./pg-mcp
+make run-server   # Terminal 1
+make run-agent    # Terminal 2 — connects to RNAcentral by default
 ```
 
 ## Configuration

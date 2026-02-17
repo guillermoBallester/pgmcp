@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/guillermoballestersasso/pgmcp/internal/adapter/postgres"
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
@@ -70,7 +69,7 @@ func run() error {
 	mcpServer := app.NewServer(explorerSvc, querySvc, logger)
 
 	// Tunnel agent — connects outbound to cloud server.
-	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, mcpServer, logger)
+	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, "0.1.0", mcpServer, logger)
 
 	// Run blocks until ctx is cancelled.
 	runErr := agent.Run(ctx)
@@ -78,7 +77,7 @@ func run() error {
 	// --- Shutdown sequence ---
 	logger.Info("shutting down")
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.DrainTimeout)
 	defer shutdownCancel()
 
 	// Second signal during shutdown = hard exit.
@@ -94,6 +93,11 @@ func run() error {
 		case <-shutdownCtx.Done():
 		}
 	}()
+
+	// Drain in-flight handlers before closing the DB pool.
+	if err := agent.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("drain did not complete", slog.String("error", err.Error()))
+	}
 
 	pool.Close()
 	logger.Info("database pool closed",

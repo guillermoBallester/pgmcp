@@ -47,7 +47,12 @@ func run() error {
 	)
 
 	// Tunnel server — manages WebSocket connection to the agent.
-	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, logger)
+	hbCfg := itunnel.HeartbeatConfig{
+		Interval:      cfg.HeartbeatInterval,
+		Timeout:       cfg.HeartbeatTimeout,
+		MissThreshold: cfg.HeartbeatMissThreshold,
+	}
+	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, hbCfg, "0.1.0", logger)
 
 	// Proxy — discovers agent tools and registers proxy handlers on the cloud MCPServer.
 	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, logger)

@@ -257,7 +257,7 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go agent.Run(ctx)
+	go func() { _ = agent.Run(ctx) }()
 
 	// Wait for tool discovery.
 	require.Eventually(t, func() bool {

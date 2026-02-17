@@ -60,5 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Build Docker image
-        run: docker build -t pgmcp:ci .
+      - name: Build Docker images
+        run: |
+          docker build -f Dockerfile.agent -t pgmcp-agent:ci .
+          docker build -f Dockerfile.server -t pgmcp-server:ci .

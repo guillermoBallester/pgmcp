@@ -1,4 +1,7 @@
 # Binaries
+bin/
+pgmcp-agent
+pgmcp-server
 pg-mcp
 *.exe
 *.exe~
@@ -7,7 +10,6 @@ pg-mcp
 *.dylib
 
 # Go build
-/bin/
 /dist/
 
 # Test

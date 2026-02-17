@@ -16,17 +16,33 @@ services:
       timeout: 5s
       retries: 10
 
-  pg-mcp:
-    build: ../../
+  server:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.server
+    ports:
+      - "8080:8080"
+    environment:
+      LISTEN_ADDR: ":8080"
+      API_KEYS: "demo-key"
+      LOG_LEVEL: "info"
+
+  agent:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.agent
     depends_on:
       postgres:
         condition: service_healthy
+      server:
+        condition: service_started
     environment:
       DATABASE_URL: postgres://demo:demo@postgres:5432/demo?sslmode=disable
+      TUNNEL_URL: ws://server:8080/tunnel
+      API_KEY: "demo-key"
       READ_ONLY: "true"
       MAX_ROWS: "100"
       QUERY_TIMEOUT: "10s"
-    stdin_open: true
 
 volumes:
   pgdata:

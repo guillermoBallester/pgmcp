@@ -41,22 +41,40 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Build Docker image
-        run: docker build -t pgmcp:security-scan .
+      - name: Build Docker images
+        run: |
+          docker build -f Dockerfile.agent -t pgmcp-agent:security-scan .
+          docker build -f Dockerfile.server -t pgmcp-server:security-scan .
 
-      - name: Run Trivy vulnerability scanner (image)
+      - name: Run Trivy vulnerability scanner (agent image)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: pgmcp:security-scan
+          image-ref: pgmcp-agent:security-scan
           severity: CRITICAL,HIGH
           format: sarif
-          output: trivy-image.sarif
+          output: trivy-image-agent.sarif
+
+      - name: Run Trivy vulnerability scanner (server image)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: pgmcp-server:security-scan
+          severity: CRITICAL,HIGH
+          format: sarif
+          output: trivy-image-server.sarif
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: trivy-image.sarif
+          sarif_file: trivy-image-agent.sarif
+          category: trivy-image-agent
+
+      - name: Upload Trivy server results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-image-server.sarif
+          category: trivy-image-server
 
   govulncheck:
     name: Go vulnerability check

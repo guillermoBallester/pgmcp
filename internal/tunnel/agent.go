@@ -80,7 +80,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("websocket dial: %w", err)
 	}
-	defer wsConn.CloseNow()
+	defer wsConn.CloseNow() //nolint:errcheck // best-effort cleanup
 
 	// Convert WebSocket to a net.Conn for yamux.
 	netConn := websocket.NetConn(ctx, wsConn, websocket.MessageBinary)
@@ -92,7 +92,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("yamux server: %w", err)
 	}
-	defer session.Close()
+	defer session.Close() //nolint:errcheck // best-effort cleanup
 
 	a.logger.Info("tunnel connected")
 
@@ -109,7 +109,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 }
 
 func (a *Agent) handleStream(ctx context.Context, stream net.Conn) {
-	defer stream.Close()
+	defer stream.Close() //nolint:errcheck // best-effort cleanup
 
 	var req tunnel.Request
 	if err := tunnel.ReadMsg(stream, &req); err != nil {

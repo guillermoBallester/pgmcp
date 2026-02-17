@@ -62,10 +62,10 @@ func run() error {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if tunnelServer.Connected() {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "ok")
+			_, _ = fmt.Fprint(w, "ok")
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, "no agent connected")
+			_, _ = fmt.Fprint(w, "no agent connected")
 		}
 	})
 

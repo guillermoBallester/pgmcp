@@ -75,7 +75,7 @@ func (s *TunnelServer) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
-	defer wsConn.CloseNow()
+	defer wsConn.CloseNow() //nolint:errcheck // best-effort cleanup
 
 	netConn := websocket.NetConn(r.Context(), wsConn, websocket.MessageBinary)
 
@@ -89,7 +89,7 @@ func (s *TunnelServer) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
-	defer session.Close()
+	defer session.Close() //nolint:errcheck // best-effort cleanup
 
 	s.mu.Lock()
 	s.yamuxSession = session
@@ -130,7 +130,7 @@ func (s *TunnelServer) ForwardCall(ctx context.Context, sessionID string, payloa
 	if err != nil {
 		return nil, fmt.Errorf("open yamux stream: %w", err)
 	}
-	defer stream.Close()
+	defer stream.Close() //nolint:errcheck // best-effort cleanup
 
 	req := tunnel.Request{
 		SessionID: sessionID,

@@ -20,8 +20,11 @@ const (
 
 // Tool descriptions
 const (
-	descListTables = "List all tables in the database with their schemas, estimated row counts, and comments. " +
-		"Call this first to discover what tables are available before describing or querying them."
+	descListSchemas = "List all available database schemas. " +
+		"Call this first to discover what schemas exist before listing tables or describing them."
+
+	descListTables = "List all tables and views in the database with their schemas, types, estimated row counts, and comments. " +
+		"Call this first to discover what tables and views are available before describing or querying them."
 
 	descDescribeTable = "Describe a table's structure including columns (name, type, nullable, default, comment), " +
 		"primary keys, foreign keys with referenced tables, and indexes. " +
@@ -40,6 +43,13 @@ const (
 
 func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query *service.QueryService, logger *slog.Logger) {
 	s.AddTool(
+		mcp.NewTool("list_schemas",
+			mcp.WithDescription(descListSchemas),
+		),
+		listSchemasHandler(explorer, logger),
+	)
+
+	s.AddTool(
 		mcp.NewTool("list_tables",
 			mcp.WithDescription(descListTables),
 		),
@@ -52,6 +62,9 @@ func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query
 			mcp.WithString("table_name",
 				mcp.Required(),
 				mcp.Description(descDescribeTableParam),
+			),
+			mcp.WithString("schema",
+				mcp.Description("Schema name (optional, resolves automatically if omitted)"),
 			),
 		),
 		describeTableHandler(explorer, logger),
@@ -67,6 +80,38 @@ func RegisterTools(s *server.MCPServer, explorer *service.ExplorerService, query
 		),
 		queryHandler(query, logger),
 	)
+}
+
+func listSchemasHandler(explorer *service.ExplorerService, logger *slog.Logger) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
+		logger.InfoContext(ctx, "tool call received",
+			slog.String("rpc.method", "tools/call"),
+			slog.String("mcp.tool", "list_schemas"),
+		)
+
+		schemas, err := explorer.ListSchemas(ctx)
+		if err != nil {
+			logger.ErrorContext(ctx, "tool call failed",
+				slog.String("mcp.tool", "list_schemas"),
+				slog.Duration("duration", time.Since(start)),
+				slog.String("error.type", "tool_error"),
+			)
+			return mcp.NewToolResultError(fmt.Sprintf("failed to list schemas: %v", err)), nil
+		}
+
+		data, err := json.Marshal(schemas)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal results: %v", err)), nil
+		}
+
+		logger.InfoContext(ctx, "tool call completed",
+			slog.String("mcp.tool", "list_schemas"),
+			slog.Int("db.response.rows", len(schemas)),
+			slog.Duration("duration", time.Since(start)),
+		)
+		return mcp.NewToolResultText(string(data)), nil
+	}
 }
 
 func listTablesHandler(explorer *service.ExplorerService, logger *slog.Logger) server.ToolHandlerFunc {
@@ -115,7 +160,9 @@ func describeTableHandler(explorer *service.ExplorerService, logger *slog.Logger
 			slog.String("db.collection.name", tableName),
 		)
 
-		detail, err := explorer.DescribeTable(ctx, tableName)
+		schema, _ := request.GetArguments()["schema"].(string)
+
+		detail, err := explorer.DescribeTable(ctx, schema, tableName)
 		if err != nil {
 			logger.ErrorContext(ctx, "tool call failed",
 				slog.String("mcp.tool", "describe_table"),

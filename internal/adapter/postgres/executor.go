@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -29,8 +30,13 @@ func (e *Executor) Execute(ctx context.Context, sql string) ([]map[string]any, e
 	ctx, cancel := context.WithTimeout(ctx, e.queryTimeout)
 	defer cancel()
 
-	// Wrap in a row-limited subquery
-	wrappedSQL := fmt.Sprintf("SELECT * FROM (%s) AS _q LIMIT %d", sql, e.maxRows)
+	// EXPLAIN statements cannot be wrapped in a subquery
+	var wrappedSQL string
+	if isExplain(sql) {
+		wrappedSQL = sql
+	} else {
+		wrappedSQL = fmt.Sprintf("SELECT * FROM (%s) AS _q LIMIT %d", sql, e.maxRows)
+	}
 
 	tx, err := e.pool.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: e.accessMode(),
@@ -71,6 +77,10 @@ func (e *Executor) Execute(ctx context.Context, sql string) ([]map[string]any, e
 	}
 
 	return results, nil
+}
+
+func isExplain(sql string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "EXPLAIN")
 }
 
 func (e *Executor) accessMode() pgx.TxAccessMode {

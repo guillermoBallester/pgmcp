@@ -3,13 +3,15 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 // AgentConfig extends the base Config with tunnel-specific settings.
 type AgentConfig struct {
 	*Config
-	TunnelURL string
-	APIKey    string
+	TunnelURL    string
+	APIKey       string
+	DrainTimeout time.Duration
 }
 
 // LoadAgent loads agent configuration from environment variables.
@@ -21,10 +23,20 @@ func LoadAgent() (*AgentConfig, error) {
 		return nil, err
 	}
 
+	drainTimeout := 5 * time.Second
+	if v := os.Getenv("DRAIN_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DRAIN_TIMEOUT: %w", err)
+		}
+		drainTimeout = d
+	}
+
 	cfg := &AgentConfig{
-		Config:    base,
-		TunnelURL: os.Getenv("TUNNEL_URL"),
-		APIKey:    os.Getenv("API_KEY"),
+		Config:       base,
+		TunnelURL:    os.Getenv("TUNNEL_URL"),
+		APIKey:       os.Getenv("API_KEY"),
+		DrainTimeout: drainTimeout,
 	}
 
 	if cfg.TunnelURL == "" {

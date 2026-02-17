@@ -4,20 +4,28 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ServerConfig holds configuration for the cloud server.
 type ServerConfig struct {
-	ListenAddr string
-	APIKeys    []string
-	LogLevel   slog.Level
+	ListenAddr             string
+	APIKeys                []string
+	LogLevel               slog.Level
+	HeartbeatInterval      time.Duration
+	HeartbeatTimeout       time.Duration
+	HeartbeatMissThreshold int
 }
 
 // LoadServer loads server configuration from environment variables.
 func LoadServer() (*ServerConfig, error) {
 	cfg := &ServerConfig{
-		ListenAddr: ":8080",
+		ListenAddr:             ":8080",
+		HeartbeatInterval:      10 * time.Second,
+		HeartbeatTimeout:       5 * time.Second,
+		HeartbeatMissThreshold: 3,
 	}
 
 	if v := os.Getenv("LISTEN_ADDR"); v != "" {
@@ -44,6 +52,30 @@ func LoadServer() (*ServerConfig, error) {
 			return nil, err
 		}
 		cfg.LogLevel = level
+	}
+
+	if v := os.Getenv("HEARTBEAT_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HEARTBEAT_INTERVAL: %w", err)
+		}
+		cfg.HeartbeatInterval = d
+	}
+
+	if v := os.Getenv("HEARTBEAT_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HEARTBEAT_TIMEOUT: %w", err)
+		}
+		cfg.HeartbeatTimeout = d
+	}
+
+	if v := os.Getenv("HEARTBEAT_MISS_THRESHOLD"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HEARTBEAT_MISS_THRESHOLD: %w", err)
+		}
+		cfg.HeartbeatMissThreshold = n
 	}
 
 	return cfg, nil

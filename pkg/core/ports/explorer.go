@@ -5,6 +5,7 @@ import "context"
 type TableInfo struct {
 	Schema      string `json:"schema"`
 	Name        string `json:"name"`
+	Type        string `json:"type"`
 	RowEstimate int64  `json:"row_estimate"`
 	Comment     string `json:"comment,omitempty"`
 }
@@ -40,7 +41,12 @@ type TableDetail struct {
 	Indexes     []IndexInfo  `json:"indexes,omitempty"`
 }
 
+type SchemaInfo struct {
+	Name string `json:"name"`
+}
+
 type SchemaExplorer interface {
+	ListSchemas(ctx context.Context) ([]SchemaInfo, error)
 	ListTables(ctx context.Context) ([]TableInfo, error)
-	DescribeTable(ctx context.Context, tableName string) (*TableDetail, error)
+	DescribeTable(ctx context.Context, schema, tableName string) (*TableDetail, error)
 }

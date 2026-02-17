@@ -1,10 +1,22 @@
 package postgres
 
+// queryListSchemas has one %s placeholder for the schema filter clause.
+const queryListSchemas = `
+	SELECT s.schema_name
+	FROM information_schema.schemata s
+	WHERE %s
+	ORDER BY s.schema_name`
+
 // queryListTables has one %s placeholder for the schema filter clause.
 const queryListTables = `
 	SELECT
 		t.table_schema,
 		t.table_name,
+		CASE t.table_type
+			WHEN 'BASE TABLE' THEN 'table'
+			WHEN 'VIEW' THEN 'view'
+			ELSE lower(t.table_type)
+		END AS type,
 		COALESCE(s.n_live_tup, 0) AS row_estimate,
 		COALESCE(pg_catalog.obj_description(
 			(quote_ident(t.table_schema) || '.' || quote_ident(t.table_name))::regclass, 'pg_class'
@@ -13,7 +25,7 @@ const queryListTables = `
 	LEFT JOIN pg_stat_user_tables s
 		ON s.schemaname = t.table_schema AND s.relname = t.table_name
 	WHERE %s
-		AND t.table_type = 'BASE TABLE'
+		AND t.table_type IN ('BASE TABLE', 'VIEW')
 	ORDER BY t.table_schema, t.table_name`
 
 // queryTableMeta has one %s placeholder for the schema filter clause.
@@ -27,6 +39,13 @@ const queryTableMeta = `
 	WHERE t.table_name = $1
 		AND %s
 	LIMIT 1`
+
+// queryTableComment fetches the comment for a table with a known schema.
+// $1 is schema_name, $2 is table_name.
+const queryTableComment = `
+	SELECT COALESCE(pg_catalog.obj_description(
+		(quote_ident($1) || '.' || quote_ident($2))::regclass, 'pg_class'
+	), '')`
 
 const queryColumns = `
 	SELECT

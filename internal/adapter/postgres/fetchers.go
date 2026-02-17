@@ -7,6 +7,15 @@ import (
 	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
 )
 
+func (e *Explorer) fetchTableComment(ctx context.Context, schema, tableName string) (string, error) {
+	var comment string
+	err := e.pool.QueryRow(ctx, queryTableComment, schema, tableName).Scan(&comment)
+	if err != nil {
+		return "", fmt.Errorf("table %q not found in schema %q: %w", tableName, schema, err)
+	}
+	return comment, nil
+}
+
 func (e *Explorer) fetchTableMeta(ctx context.Context, tableName string) (schema, comment string, err error) {
 	filter, filterArgs := e.schemaFilter("t.table_schema", 2) // $1 is tableName
 	query := fmt.Sprintf(queryTableMeta, filter)

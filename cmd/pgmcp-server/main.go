@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/guillermoballestersasso/pgmcp/internal/server"
@@ -49,19 +48,29 @@ func run() error {
 	)
 
 	// Tunnel server — manages WebSocket connection to the agent.
-	hbCfg := itunnel.HeartbeatConfig{
-		Interval:      cfg.HeartbeatInterval,
-		Timeout:       cfg.HeartbeatTimeout,
-		MissThreshold: cfg.HeartbeatMissThreshold,
+	tunnelCfg := itunnel.ServerTunnelConfig{
+		Heartbeat: itunnel.HeartbeatConfig{
+			Interval:      cfg.HeartbeatInterval,
+			Timeout:       cfg.HeartbeatTimeout,
+			MissThreshold: cfg.HeartbeatMissThreshold,
+		},
+		HandshakeTimeout: cfg.HandshakeTimeout,
+		Yamux: itunnel.YamuxConfig{
+			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
+			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
+		},
 	}
-	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, hbCfg, version, logger)
+	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, tunnelCfg, version, logger)
 
 	// Proxy — discovers agent tools and registers proxy handlers on the cloud MCPServer.
 	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, logger)
 	proxy.Setup()
 
 	// HTTP server with chi routing and middleware.
-	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, logger)
+	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, server.HTTPConfig{
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
+	}, logger)
 	errCh := srv.Start()
 
 	// Wait for shutdown signal or server error.
@@ -74,7 +83,7 @@ func run() error {
 	// --- Shutdown sequence ---
 	logger.Info("shutting down")
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer shutdownCancel()
 
 	// Second signal during shutdown = hard exit.

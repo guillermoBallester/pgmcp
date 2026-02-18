@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -104,9 +103,7 @@ func (s *TunnelServer) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 	netConn := websocket.NetConn(r.Context(), wsConn, websocket.MessageBinary)
 
 	// Cloud server is yamux CLIENT — it opens streams to the agent.
-	yamuxCfg := yamux.DefaultConfig()
-	yamuxCfg.LogOutput = io.Discard
-	session, err := yamux.Client(netConn, yamuxCfg)
+	session, err := yamux.Client(netConn, newYamuxConfig())
 	if err != nil {
 		s.logger.Error("yamux client creation failed",
 			slog.String("error", err.Error()),

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,6 +17,22 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+const (
+	sessionTTL             = 10 * time.Minute
+	sessionCleanupInterval = 1 * time.Minute
+)
+
+// trackedSession wraps an InProcessSession with last-activity tracking
+// to enable TTL-based eviction of idle sessions.
+type trackedSession struct {
+	session    *server.InProcessSession
+	lastActive atomic.Int64 // UnixNano timestamp
+}
+
+func (ts *trackedSession) touch() {
+	ts.lastActive.Store(time.Now().UnixNano())
+}
+
 // Agent connects to the cloud server via WebSocket and serves MCP calls
 // received through yamux streams.
 type Agent struct {
@@ -28,11 +43,13 @@ type Agent struct {
 	logger       *slog.Logger
 
 	mu       sync.Mutex
-	sessions map[string]*server.InProcessSession
+	sessions map[string]*trackedSession
 
 	drainMu  sync.Mutex     // protects draining check + wg.Add atomicity
 	wg       sync.WaitGroup // tracks in-flight handleStream goroutines
 	draining atomic.Bool    // true when shutdown initiated
+
+	sessionTTLOverride time.Duration // testing only; zero means use sessionTTL
 }
 
 // NewAgent creates a new tunnel agent.
@@ -43,7 +60,7 @@ func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServe
 		agentVersion: agentVersion,
 		mcpServer:    mcpServer,
 		logger:       logger,
-		sessions:     make(map[string]*server.InProcessSession),
+		sessions:     make(map[string]*trackedSession),
 	}
 }
 
@@ -124,9 +141,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 	netConn := websocket.NetConn(connCtx, wsConn, websocket.MessageBinary)
 
 	// Agent is yamux SERVER — the cloud server opens streams to us.
-	yamuxCfg := yamux.DefaultConfig()
-	yamuxCfg.LogOutput = io.Discard
-	session, err := yamux.Server(netConn, yamuxCfg)
+	session, err := yamux.Server(netConn, newYamuxConfig())
 	if err != nil {
 		return fmt.Errorf("yamux server: %w", err)
 	}
@@ -134,16 +149,50 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 
 	a.logger.Info("tunnel connected")
 
-	// When the parent context is cancelled, set draining, wait for in-flight
-	// handlers to complete, then close the session to break the accept loop.
+	// Clear stale sessions from a previous connection.
+	a.clearSessions(ctx)
+
+	// Start periodic cleanup of idle sessions.
+	cleanupCtx, cleanupCancel := context.WithCancel(connCtx)
+	go func() {
+		ticker := time.NewTicker(sessionCleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-cleanupCtx.Done():
+				return
+			case <-ticker.C:
+				a.cleanStaleSessions(cleanupCtx)
+			}
+		}
+	}()
+
+	// When the parent context is cancelled, drain in-flight handlers then
+	// close the session. A safety timeout prevents zombie agents if a handler
+	// is stuck — after 30s we force-close regardless.
 	go func() {
 		<-ctx.Done()
 		a.drainMu.Lock()
 		a.draining.Store(true)
 		a.drainMu.Unlock()
-		a.wg.Wait()
-		connCancel()
+
+		done := make(chan struct{})
+		go func() {
+			a.wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// All handlers drained gracefully.
+		case <-time.After(30 * time.Second):
+			a.logger.Warn("force-closing tunnel: handlers did not drain in time")
+		}
+
+		a.clearSessions(context.Background())
+		cleanupCancel()
 		session.Close() //nolint:errcheck
+		connCancel()
 	}()
 
 	for {
@@ -299,12 +348,15 @@ func (a *Agent) getOrCreateSession(ctx context.Context, sessionID string) *serve
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if s, ok := a.sessions[sessionID]; ok {
-		return s
+	if ts, ok := a.sessions[sessionID]; ok {
+		ts.touch()
+		return ts.session
 	}
 
 	s := server.NewInProcessSession(sessionID, nil)
-	a.sessions[sessionID] = s
+	ts := &trackedSession{session: s}
+	ts.touch()
+	a.sessions[sessionID] = ts
 	if err := a.mcpServer.RegisterSession(ctx, s); err != nil {
 		a.logger.Warn("failed to register session",
 			slog.String("session_id", sessionID),
@@ -313,4 +365,37 @@ func (a *Agent) getOrCreateSession(ctx context.Context, sessionID string) *serve
 	}
 
 	return s
+}
+
+// clearSessions unregisters and removes all tracked sessions.
+func (a *Agent) clearSessions(ctx context.Context) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for id := range a.sessions {
+		a.mcpServer.UnregisterSession(ctx, id)
+	}
+	a.sessions = make(map[string]*trackedSession)
+}
+
+// cleanStaleSessions removes sessions that have been idle longer than the TTL.
+func (a *Agent) cleanStaleSessions(ctx context.Context) {
+	ttl := a.sessionTTLOverride
+	if ttl == 0 {
+		ttl = sessionTTL
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	now := time.Now().UnixNano()
+	for id, ts := range a.sessions {
+		if now-ts.lastActive.Load() > int64(ttl) {
+			a.mcpServer.UnregisterSession(ctx, id)
+			delete(a.sessions, id)
+			a.logger.Debug("evicted stale session",
+				slog.String("session_id", id),
+			)
+		}
+	}
 }

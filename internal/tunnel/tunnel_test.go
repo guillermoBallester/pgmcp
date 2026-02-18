@@ -403,6 +403,117 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 
 // --- New heartbeat and graceful shutdown tests ---
 
+// TestNewYamuxConfig verifies that the shared yamux config helper returns expected values.
+func TestNewYamuxConfig(t *testing.T) {
+	cfg := newYamuxConfig()
+	assert.True(t, cfg.EnableKeepAlive, "EnableKeepAlive should be true")
+	assert.Equal(t, 15*time.Second, cfg.KeepAliveInterval, "KeepAliveInterval should be 15s")
+	assert.Equal(t, 10*time.Second, cfg.ConnectionWriteTimeout, "ConnectionWriteTimeout should be 10s")
+}
+
+// TestSessionTTLEviction verifies that idle sessions are evicted after the TTL expires.
+func TestSessionTTLEviction(t *testing.T) {
+	agentMCP := newAgentMCPServer()
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+		Interval:      10 * time.Second,
+		Timeout:       5 * time.Second,
+		MissThreshold: 3,
+	})
+	agent.sessionTTLOverride = 50 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = agent.Run(ctx) }()
+
+	require.Eventually(t, func() bool {
+		return tunnelSrv.Connected()
+	}, 5*time.Second, 50*time.Millisecond)
+
+	// Forward a call to create a session on the agent.
+	_, err := tunnelSrv.ForwardCall(ctx, "ttl-sess", json.RawMessage(
+		`{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"echo","arguments":{"message":"hi"}}}`,
+	))
+	require.NoError(t, err)
+
+	// Session should exist (along with the "discovery" session from proxy).
+	agent.mu.Lock()
+	_, hasTTLSess := agent.sessions["ttl-sess"]
+	agent.mu.Unlock()
+	assert.True(t, hasTTLSess, "ttl-sess session should exist after call")
+
+	// Wait for TTL to expire.
+	time.Sleep(100 * time.Millisecond)
+
+	// Manually trigger cleanup.
+	agent.cleanStaleSessions(ctx)
+
+	// All sessions should be evicted (both ttl-sess and discovery).
+	agent.mu.Lock()
+	assert.Empty(t, agent.sessions, "all sessions should be evicted after TTL")
+	agent.mu.Unlock()
+
+	cancel()
+}
+
+// TestSessionClearedOnReconnect verifies that sessions are cleared when the agent reconnects.
+func TestSessionClearedOnReconnect(t *testing.T) {
+	agentMCP := newAgentMCPServer()
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+		Interval:      10 * time.Second,
+		Timeout:       5 * time.Second,
+		MissThreshold: 3,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() { _ = agent.Run(ctx) }()
+
+	require.Eventually(t, func() bool {
+		return tunnelSrv.Connected()
+	}, 5*time.Second, 50*time.Millisecond)
+
+	// Forward a call to create a session.
+	_, err := tunnelSrv.ForwardCall(ctx, "reconnect-sess", json.RawMessage(
+		`{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"echo","arguments":{"message":"hi"}}}`,
+	))
+	require.NoError(t, err)
+
+	agent.mu.Lock()
+	_, hasReconnSess := agent.sessions["reconnect-sess"]
+	agent.mu.Unlock()
+	assert.True(t, hasReconnSess, "reconnect-sess session should exist after call")
+
+	// Disconnect by cancelling context.
+	cancel()
+
+	// Wait for disconnection.
+	require.Eventually(t, func() bool {
+		return !tunnelSrv.Connected()
+	}, 5*time.Second, 50*time.Millisecond, "agent should disconnect")
+
+	// Reconnect with a new context.
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+
+	// Reset draining so agent can reconnect.
+	agent.draining.Store(false)
+	go func() { _ = agent.Run(ctx2) }()
+
+	require.Eventually(t, func() bool {
+		return tunnelSrv.Connected()
+	}, 5*time.Second, 50*time.Millisecond, "agent should reconnect")
+
+	// The old "reconnect-sess" session should be gone (cleared on reconnect).
+	// A new "discovery" session may exist from the proxy's tool discovery callback.
+	agent.mu.Lock()
+	_, hasOldSess := agent.sessions["reconnect-sess"]
+	agent.mu.Unlock()
+	assert.False(t, hasOldSess, "old session should be cleared after reconnect")
+
+	cancel2()
+}
+
 // TestHeartbeatPingPong verifies the server sends heartbeat pings and receives pongs.
 func TestHeartbeatPingPong(t *testing.T) {
 	agentMCP := newAgentMCPServer()

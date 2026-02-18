@@ -138,7 +138,7 @@ func setupTunnel(t *testing.T, agentMCP *server.MCPServer, hbCfg config.Heartbea
 		server.WithToolCapabilities(true),
 	)
 	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(hbCfg), "0.1.0", logger)
-	proxy := NewProxy(tunnelSrv, cloudMCP, logger)
+	proxy := NewProxy(tunnelSrv, cloudMCP, testServerTunnelConfig(hbCfg), logger)
 	proxy.Setup()
 
 	mux := http.NewServeMux()
@@ -167,8 +167,9 @@ func TestTunnelEndToEnd(t *testing.T) {
 	cloudMCP := server.NewMCPServer("test-cloud", "0.1.0",
 		server.WithToolCapabilities(true),
 	)
-	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(testHeartbeatConfig()), "0.1.0", logger)
-	proxy := NewProxy(tunnelSrv, cloudMCP, logger)
+	srvCfg := testServerTunnelConfig(testHeartbeatConfig())
+	tunnelSrv := NewTunnelServer([]string{apiKey}, srvCfg, "0.1.0", logger)
+	proxy := NewProxy(tunnelSrv, cloudMCP, srvCfg, logger)
 	proxy.Setup()
 
 	// HTTP test server with the /tunnel endpoint.
@@ -200,8 +201,7 @@ func TestTunnelEndToEnd(t *testing.T) {
 
 	// Give the proxy time to run tool discovery (onConnect callback).
 	require.Eventually(t, func() bool {
-		names, _ := proxy.toolNames.Load().([]string)
-		return len(names) > 0
+		return len(proxy.ToolNames()) > 0
 	}, 5*time.Second, 50*time.Millisecond, "proxy should discover tools")
 
 	// Verify the "echo" tool was registered on the cloud MCPServer.
@@ -334,8 +334,9 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 	cloudMCP := server.NewMCPServer("test-cloud", "0.1.0",
 		server.WithToolCapabilities(true),
 	)
-	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(testHeartbeatConfig()), "0.1.0", logger)
-	proxy := NewProxy(tunnelSrv, cloudMCP, logger)
+	srvCfg := testServerTunnelConfig(testHeartbeatConfig())
+	tunnelSrv := NewTunnelServer([]string{apiKey}, srvCfg, "0.1.0", logger)
+	proxy := NewProxy(tunnelSrv, cloudMCP, srvCfg, logger)
 	proxy.Setup()
 
 	mux := http.NewServeMux()
@@ -355,8 +356,7 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 
 	// Wait for tool discovery.
 	require.Eventually(t, func() bool {
-		names, _ := proxy.toolNames.Load().([]string)
-		return len(names) > 0
+		return len(proxy.ToolNames()) > 0
 	}, 5*time.Second, 50*time.Millisecond)
 
 	// Set up a session for the cloud MCPServer.
@@ -505,8 +505,9 @@ func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg 
 	cloudMCP := server.NewMCPServer("test-cloud", "0.1.0",
 		server.WithToolCapabilities(true),
 	)
-	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(hbCfg), "0.1.0", logger)
-	proxy := NewProxy(tunnelSrv, cloudMCP, logger)
+	srvCfg := testServerTunnelConfig(hbCfg)
+	tunnelSrv := NewTunnelServer([]string{apiKey}, srvCfg, "0.1.0", logger)
+	proxy := NewProxy(tunnelSrv, cloudMCP, srvCfg, logger)
 	proxy.Setup()
 
 	mux := http.NewServeMux()
@@ -856,8 +857,7 @@ func TestHandshakeSuccess(t *testing.T) {
 
 	// Proxy should discover tools (only happens after successful handshake).
 	require.Eventually(t, func() bool {
-		names, _ := proxy.toolNames.Load().([]string)
-		return len(names) > 0
+		return len(proxy.ToolNames()) > 0
 	}, 5*time.Second, 50*time.Millisecond, "proxy should discover tools after handshake")
 
 	cancel()

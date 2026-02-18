@@ -5,11 +5,42 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+// jsonRPCRequest is a minimal JSON-RPC 2.0 request envelope for outgoing calls.
+type jsonRPCRequest struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      string `json:"id"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
+}
+
+// jsonRPCError is the error object in a JSON-RPC 2.0 error response.
+type jsonRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// toolsListResponse is the JSON-RPC response for tools/list.
+type toolsListResponse struct {
+	Result mcp.ListToolsResult `json:"result"`
+	Error  *jsonRPCError       `json:"error,omitempty"`
+}
+
+// toolCallResponse is the JSON-RPC response for tools/call.
+type toolCallResponse struct {
+	Result *mcp.CallToolResult `json:"result"`
+	Error  *jsonRPCError       `json:"error,omitempty"`
+}
+
+const defaultDiscoveryTimeout = 30 * time.Second
 
 // Proxy discovers tools from the agent when it connects and registers
 // proxy handlers on the cloud server's MCPServer that forward calls
@@ -17,18 +48,34 @@ import (
 type Proxy struct {
 	tunnel    *TunnelServer
 	mcpServer *server.MCPServer
+	cfg       config.ServerTunnelConfig
 	logger    *slog.Logger
 
-	toolNames atomic.Value // []string — names of currently registered proxy tools
+	mu         sync.Mutex
+	toolNames  []string
+	reqCounter atomic.Uint64
 }
 
 // NewProxy creates a new proxy that bridges the tunnel and cloud MCPServer.
-func NewProxy(tunnel *TunnelServer, mcpServer *server.MCPServer, logger *slog.Logger) *Proxy {
+func NewProxy(tunnel *TunnelServer, mcpServer *server.MCPServer, cfg config.ServerTunnelConfig, logger *slog.Logger) *Proxy {
 	return &Proxy{
 		tunnel:    tunnel,
 		mcpServer: mcpServer,
+		cfg:       cfg,
 		logger:    logger,
 	}
+}
+
+// ToolNames returns a copy of the currently registered proxy tool names.
+func (p *Proxy) ToolNames() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.toolNames == nil {
+		return nil
+	}
+	out := make([]string, len(p.toolNames))
+	copy(out, p.toolNames)
+	return out
 }
 
 // Setup registers the onConnect/onDisconnect callbacks on the TunnelServer.
@@ -37,14 +84,25 @@ func (p *Proxy) Setup() {
 	p.tunnel.SetOnDisconnect(p.onAgentDisconnect)
 }
 
+func (p *Proxy) nextRequestID() string {
+	return fmt.Sprintf("proxy-%d", p.reqCounter.Add(1))
+}
+
+func (p *Proxy) discoveryTimeout() time.Duration {
+	if p.cfg.DiscoveryTimeout > 0 {
+		return p.cfg.DiscoveryTimeout
+	}
+	return defaultDiscoveryTimeout
+}
+
 func (p *Proxy) onAgentConnect() {
 	p.logger.Info("discovering tools from agent")
 
 	// Send a tools/list request through the tunnel.
-	listReq := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      "discovery",
-		"method":  "tools/list",
+	listReq := jsonRPCRequest{
+		JSONRPC: "2.0",
+		ID:      p.nextRequestID(),
+		Method:  "tools/list",
 	}
 	payload, err := json.Marshal(listReq)
 	if err != nil {
@@ -54,7 +112,10 @@ func (p *Proxy) onAgentConnect() {
 		return
 	}
 
-	respBytes, err := p.tunnel.ForwardCall(context.Background(), "discovery", payload)
+	ctx, cancel := context.WithTimeout(context.Background(), p.discoveryTimeout())
+	defer cancel()
+
+	respBytes, err := p.tunnel.ForwardCall(ctx, "discovery", payload)
 	if err != nil {
 		p.logger.Error("failed to discover tools",
 			slog.String("error", err.Error()),
@@ -63,14 +124,7 @@ func (p *Proxy) onAgentConnect() {
 	}
 
 	// Parse the JSON-RPC response to extract tools.
-	var rpcResp struct {
-		Result struct {
-			Tools []mcp.Tool `json:"tools"`
-		} `json:"result"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error,omitempty"`
-	}
+	var rpcResp toolsListResponse
 	if err := json.Unmarshal(respBytes, &rpcResp); err != nil {
 		p.logger.Error("failed to parse tools/list response",
 			slog.String("error", err.Error()),
@@ -90,7 +144,10 @@ func (p *Proxy) onAgentConnect() {
 		p.mcpServer.AddTool(tool, p.makeProxyHandler(tool.Name))
 		names = append(names, tool.Name)
 	}
-	p.toolNames.Store(names)
+
+	p.mu.Lock()
+	p.toolNames = names
+	p.mu.Unlock()
 
 	p.logger.Info("registered tools from agent",
 		slog.Int("count", len(names)),
@@ -99,24 +156,39 @@ func (p *Proxy) onAgentConnect() {
 }
 
 func (p *Proxy) onAgentDisconnect() {
-	names, _ := p.toolNames.Load().([]string)
+	p.mu.Lock()
+	names := p.toolNames
+	p.toolNames = nil
+	p.mu.Unlock()
+
 	if len(names) > 0 {
 		p.mcpServer.DeleteTools(names...)
 		p.logger.Info("removed tools on agent disconnect",
 			slog.Int("count", len(names)),
 		)
 	}
-	p.toolNames.Store([]string(nil))
 }
 
 func (p *Proxy) makeProxyHandler(toolName string) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Derive session ID from the client session if available.
+		sessionID := "default"
+		if cs := server.ClientSessionFromContext(ctx); cs != nil {
+			sessionID = cs.SessionID()
+		}
+
+		log := p.logger.With(
+			slog.String("tool", toolName),
+			slog.String("session_id", sessionID),
+		)
+		log.Debug("forwarding tool call")
+
 		// Build the JSON-RPC envelope for tools/call.
-		rpcReq := map[string]any{
-			"jsonrpc": "2.0",
-			"id":      fmt.Sprintf("proxy-%s", toolName),
-			"method":  "tools/call",
-			"params": map[string]any{
+		rpcReq := jsonRPCRequest{
+			JSONRPC: "2.0",
+			ID:      p.nextRequestID(),
+			Method:  "tools/call",
+			Params: map[string]any{
 				"name":      request.Params.Name,
 				"arguments": request.GetArguments(),
 			},
@@ -124,35 +196,31 @@ func (p *Proxy) makeProxyHandler(toolName string) server.ToolHandlerFunc {
 
 		payload, err := json.Marshal(rpcReq)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("marshal request: %v", err)), nil
-		}
-
-		// Derive session ID from the client session if available.
-		sessionID := "default"
-		if cs := server.ClientSessionFromContext(ctx); cs != nil {
-			sessionID = cs.SessionID()
+			log.Error("failed to marshal request", slog.String("error", err.Error()))
+			return mcp.NewToolResultErrorFromErr("marshal request", err), nil
 		}
 
 		respBytes, err := p.tunnel.ForwardCall(ctx, sessionID, payload)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("tunnel error: %v", err)), nil
+			log.Error("tunnel forward failed", slog.String("error", err.Error()))
+			return mcp.NewToolResultErrorFromErr("tunnel error", err), nil
 		}
 
 		// Parse the JSON-RPC response.
-		var rpcResp struct {
-			Result *mcp.CallToolResult `json:"result"`
-			Error  *struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-			} `json:"error,omitempty"`
-		}
+		var rpcResp toolCallResponse
 		if err := json.Unmarshal(respBytes, &rpcResp); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("parse response: %v", err)), nil
+			log.Error("failed to parse response", slog.String("error", err.Error()))
+			return mcp.NewToolResultErrorFromErr("parse response", err), nil
 		}
 		if rpcResp.Error != nil {
+			log.Error("agent returned error",
+				slog.Int("code", rpcResp.Error.Code),
+				slog.String("message", rpcResp.Error.Message),
+			)
 			return mcp.NewToolResultError(rpcResp.Error.Message), nil
 		}
 		if rpcResp.Result == nil {
+			log.Error("empty result from agent")
 			return mcp.NewToolResultError("empty result from agent"), nil
 		}
 

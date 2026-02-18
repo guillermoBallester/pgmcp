@@ -65,7 +65,7 @@ func run() error {
 	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, tunnelCfg, version, logger)
 
 	// Proxy — discovers agent tools and registers proxy handlers on the cloud MCPServer.
-	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, logger)
+	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, tunnelCfg, logger)
 	proxy.Setup()
 
 	// HTTP server with chi routing and middleware.

@@ -38,6 +38,7 @@ type AgentTunnelConfig struct {
 type ServerTunnelConfig struct {
 	Heartbeat        HeartbeatConfig
 	HandshakeTimeout time.Duration
+	DiscoveryTimeout time.Duration
 	Yamux            YamuxConfig
 }
 

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,23 +25,27 @@ import (
 )
 
 // newTestLogger returns a logger that writes to testing.T.
+// Logging is silently dropped after the test finishes to avoid data races.
 func newTestLogger(t *testing.T) *slog.Logger {
 	t.Helper()
-	return slog.New(slog.NewTextHandler(&testWriter{t}, &slog.HandlerOptions{
+	w := &testWriter{t: t}
+	t.Cleanup(func() { w.done.Store(true) })
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 }
 
-type testWriter struct{ t *testing.T }
+type testWriter struct {
+	t    *testing.T
+	done atomic.Bool
+}
 
 func (w *testWriter) Write(p []byte) (n int, err error) {
-	// Recover from panic if t.Log is called after test completes
+	// Skip logging after the test has finished to avoid a data race
 	// (e.g., HandleTunnel logs "agent disconnected" in its HTTP goroutine).
-	defer func() {
-		if r := recover(); r != nil {
-			n = len(p)
-		}
-	}()
+	if w.done.Load() {
+		return len(p), nil
+	}
 	w.t.Log(strings.TrimRight(string(p), "\n"))
 	return len(p), nil
 }

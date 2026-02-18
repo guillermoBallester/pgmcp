@@ -1,0 +1,9 @@
+.git
+bin/
+docs/
+examples/
+*.md
+.env*
+.github/
+CLAUDE.md
+docker-compose*.yml

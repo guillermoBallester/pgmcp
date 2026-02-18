@@ -16,6 +16,8 @@ import (
 	"github.com/guillermoballestersasso/pgmcp/pkg/core/service"
 )
 
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -69,7 +71,7 @@ func run() error {
 	mcpServer := app.NewServer(explorerSvc, querySvc, logger)
 
 	// Tunnel agent — connects outbound to cloud server.
-	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, "0.1.0", mcpServer, logger)
+	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, version, mcpServer, logger)
 
 	// Run blocks until ctx is cancelled.
 	runErr := agent.Run(ctx)

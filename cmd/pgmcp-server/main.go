@@ -15,6 +15,8 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -42,7 +44,7 @@ func run() error {
 
 	// Cloud MCPServer — starts with zero tools. Tools are added dynamically
 	// when the agent connects and removed when it disconnects.
-	mcpSrv := mcpserver.NewMCPServer("pgmcp-cloud", "0.1.0",
+	mcpSrv := mcpserver.NewMCPServer("pgmcp-cloud", version,
 		mcpserver.WithToolCapabilities(true),
 	)
 
@@ -52,7 +54,7 @@ func run() error {
 		Timeout:       cfg.HeartbeatTimeout,
 		MissThreshold: cfg.HeartbeatMissThreshold,
 	}
-	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, hbCfg, "0.1.0", logger)
+	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, hbCfg, version, logger)
 
 	// Proxy — discovers agent tools and registers proxy handlers on the cloud MCPServer.
 	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, logger)

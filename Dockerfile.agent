@@ -1,14 +1,26 @@
-FROM golang:1.26-alpine AS builder
-
-RUN apk add --no-cache gcc musl-dev
+# syntax=docker/dockerfile:1
+FROM golang:1.26-bookworm AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -o /bin/pgmcp-agent ./cmd/pgmcp-agent
 
-FROM alpine:3.23
-RUN apk add --no-cache ca-certificates
+ARG VERSION=dev
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 go build -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION}" \
+      -o /bin/pgmcp-agent ./cmd/pgmcp-agent
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w" \
+      -o /bin/healthcheck ./cmd/healthcheck
+
+FROM gcr.io/distroless/base-debian12
 COPY --from=builder /bin/pgmcp-agent /usr/local/bin/pgmcp-agent
+COPY --from=builder /bin/healthcheck /usr/local/bin/healthcheck
+USER nonroot:nonroot
 ENTRYPOINT ["pgmcp-agent"]

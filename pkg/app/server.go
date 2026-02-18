@@ -11,9 +11,10 @@ func NewServer(explorer *service.ExplorerService, query *service.QueryService, l
 	s := server.NewMCPServer(
 		serverName,
 		serverVersion,
+		server.WithHooks(toolCallHooks(logger)),
 	)
 
-	RegisterTools(s, explorer, query, logger)
+	RegisterTools(s, explorer, query)
 
 	return s
 }

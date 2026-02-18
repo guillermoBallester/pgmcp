@@ -62,7 +62,7 @@ func run() error {
 	validator := domain.NewQueryValidator()
 
 	// Services
-	explorerSvc := service.NewExplorerService(explorer, logger)
+	explorerSvc := service.NewExplorerService(explorer)
 	querySvc := service.NewQueryService(validator, executor, logger)
 
 	// MCP server with real tool handlers (same as standalone binary).

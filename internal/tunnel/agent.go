@@ -2,30 +2,18 @@ package tunnel
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
+	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/server"
 )
-
-// AgentTunnelConfig holds tunable parameters for the tunnel agent.
-type AgentTunnelConfig struct {
-	SessionTTL             time.Duration
-	SessionCleanupInterval time.Duration
-	InitialBackoff         time.Duration
-	MaxBackoff             time.Duration
-	ForceCloseTimeout      time.Duration
-	Yamux                  YamuxConfig
-}
 
 // trackedSession wraps an InProcessSession with last-activity tracking
 // to enable TTL-based eviction of idle sessions.
@@ -46,7 +34,7 @@ type Agent struct {
 	agentVersion string
 	mcpServer    *server.MCPServer
 	logger       *slog.Logger
-	cfg          AgentTunnelConfig
+	cfg          config.AgentTunnelConfig
 
 	mu       sync.Mutex
 	sessions map[string]*trackedSession
@@ -57,7 +45,7 @@ type Agent struct {
 }
 
 // NewAgent creates a new tunnel agent.
-func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServer, cfg AgentTunnelConfig, logger *slog.Logger) *Agent {
+func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServer, cfg config.AgentTunnelConfig, logger *slog.Logger) *Agent {
 	return &Agent{
 		tunnelURL:    tunnelURL,
 		apiKey:       apiKey,
@@ -120,7 +108,33 @@ func (a *Agent) Shutdown(ctx context.Context) error {
 	}
 }
 
+// connectAndServe establishes a tunnel connection and serves until disconnected.
 func (a *Agent) connectAndServe(ctx context.Context) error {
+	session, connCtx, connCancel, err := a.dial(ctx)
+	if err != nil {
+		return err
+	}
+	defer session.Close() //nolint:errcheck // best-effort cleanup
+	defer connCancel()
+
+	a.logger.Info("tunnel connected")
+
+	// Clear stale sessions from a previous connection.
+	a.clearSessions(ctx)
+
+	// Start periodic cleanup of idle sessions.
+	cleanupCancel := a.runSessionCleanup(connCtx)
+
+	// When the parent context is cancelled, drain in-flight handlers then
+	// close the session.
+	a.watchForShutdown(ctx, session, connCancel, cleanupCancel)
+
+	return a.acceptLoop(ctx, connCtx, session)
+}
+
+// dial establishes the WebSocket + yamux connection. Returns the yamux session,
+// the connection-scoped context, and a cancel func for that context.
+func (a *Agent) dial(ctx context.Context) (*yamux.Session, context.Context, context.CancelFunc, error) {
 	a.logger.Info("connecting to tunnel server",
 		slog.String("url", a.tunnelURL),
 	)
@@ -132,32 +146,31 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("websocket dial: %w", err)
+		return nil, nil, nil, fmt.Errorf("websocket dial: %w", err)
 	}
-	defer wsConn.CloseNow() //nolint:errcheck // best-effort cleanup
 
 	// Use a separate context for the connection lifetime so that cancelling
 	// the parent ctx doesn't immediately tear down the WebSocket. This allows
 	// in-flight handlers to finish during graceful shutdown.
 	connCtx, connCancel := context.WithCancel(context.Background())
-	defer connCancel()
 
 	netConn := websocket.NetConn(connCtx, wsConn, websocket.MessageBinary)
 
 	// Agent is yamux SERVER — the cloud server opens streams to us.
 	session, err := yamux.Server(netConn, newYamuxConfig(a.cfg.Yamux))
 	if err != nil {
-		return fmt.Errorf("yamux server: %w", err)
+		connCancel()
+		wsConn.CloseNow() //nolint:errcheck
+		return nil, nil, nil, fmt.Errorf("yamux server: %w", err)
 	}
-	defer session.Close() //nolint:errcheck // best-effort cleanup
 
-	a.logger.Info("tunnel connected")
+	return session, connCtx, connCancel, nil
+}
 
-	// Clear stale sessions from a previous connection.
-	a.clearSessions(ctx)
-
-	// Start periodic cleanup of idle sessions.
-	cleanupCtx, cleanupCancel := context.WithCancel(connCtx)
+// runSessionCleanup starts a goroutine that periodically evicts idle sessions.
+// Returns a cancel func to stop it.
+func (a *Agent) runSessionCleanup(ctx context.Context) context.CancelFunc {
+	cleanupCtx, cleanupCancel := context.WithCancel(ctx)
 	go func() {
 		ticker := time.NewTicker(a.cfg.SessionCleanupInterval)
 		defer ticker.Stop()
@@ -170,10 +183,13 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 			}
 		}
 	}()
+	return cleanupCancel
+}
 
-	// When the parent context is cancelled, drain in-flight handlers then
-	// close the session. A safety timeout prevents zombie agents if a handler
-	// is stuck — after forceCloseTimeout we force-close regardless.
+// watchForShutdown starts a goroutine that drains in-flight handlers when ctx
+// is cancelled, then cleans up the session.
+func (a *Agent) watchForShutdown(ctx context.Context, session *yamux.Session,
+	connCancel, cleanupCancel context.CancelFunc) {
 	go func() {
 		<-ctx.Done()
 		a.drainMu.Lock()
@@ -198,7 +214,11 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 		session.Close() //nolint:errcheck
 		connCancel()
 	}()
+}
 
+// acceptLoop accepts yamux streams and dispatches them to handleStream.
+// Returns when the session is closed or ctx is cancelled.
+func (a *Agent) acceptLoop(ctx, connCtx context.Context, session *yamux.Session) error {
 	for {
 		stream, err := session.Accept()
 		if err != nil {
@@ -229,131 +249,11 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 	}
 }
 
-func (a *Agent) handleStream(ctx context.Context, stream net.Conn) {
-	defer stream.Close() //nolint:errcheck // best-effort cleanup
-
-	msgType, payload, err := tunnel.ReadRawFrame(stream)
-	if err != nil {
-		a.logger.Error("failed to read tunnel frame",
-			slog.String("error", err.Error()),
-		)
-		return
-	}
-
-	switch msgType {
-	case tunnel.MessageTypeHandshake:
-		a.handleHandshake(stream, payload)
-	case tunnel.MessageTypePing:
-		a.handlePing(stream, payload)
-	case tunnel.MessageTypeRequest:
-		a.handleRequest(ctx, stream, payload)
-	default:
-		a.logger.Warn("unknown message type",
-			slog.Int("type", int(msgType)),
-		)
-	}
-}
-
-func (a *Agent) handleHandshake(stream net.Conn, payload json.RawMessage) {
-	var h tunnel.Handshake
-	if err := json.Unmarshal(payload, &h); err != nil {
-		a.logger.Error("failed to unmarshal handshake",
-			slog.String("error", err.Error()),
-		)
-		return
-	}
-
-	ack := &tunnel.HandshakeAck{
-		ProtocolVersion: tunnel.ProtocolVersion,
-		AgentVersion:    a.agentVersion,
-	}
-
-	// Check protocol version compatibility (exact match for now).
-	if h.ProtocolVersion != tunnel.ProtocolVersion {
-		ack.Error = fmt.Sprintf("incompatible protocol version: server=%d, agent=%d", h.ProtocolVersion, tunnel.ProtocolVersion)
-		a.logger.Error("handshake version mismatch",
-			slog.Uint64("server_version", uint64(h.ProtocolVersion)),
-			slog.Uint64("agent_version", uint64(tunnel.ProtocolVersion)),
-		)
-	} else {
-		a.logger.Info("handshake received",
-			slog.Uint64("protocol_version", uint64(h.ProtocolVersion)),
-			slog.String("server_version", h.ServerVersion),
-		)
-	}
-
-	if err := tunnel.WriteHandshakeAck(stream, ack); err != nil {
-		a.logger.Error("failed to write handshake ack",
-			slog.String("error", err.Error()),
-		)
-	}
-}
-
-func (a *Agent) handlePing(stream net.Conn, payload json.RawMessage) {
-	var ping tunnel.Ping
-	if err := json.Unmarshal(payload, &ping); err != nil {
-		a.logger.Error("failed to unmarshal ping",
-			slog.String("error", err.Error()),
-		)
-		return
-	}
-
-	pong := &tunnel.Pong{
-		Timestamp: ping.Timestamp,
-		Draining:  a.draining.Load(),
-	}
-
-	if err := tunnel.WritePong(stream, pong); err != nil {
-		a.logger.Error("failed to write pong",
-			slog.String("error", err.Error()),
-		)
-	}
-}
-
-func (a *Agent) handleRequest(ctx context.Context, stream net.Conn, payload json.RawMessage) {
-	var req tunnel.Request
-	if err := json.Unmarshal(payload, &req); err != nil {
-		a.logger.Error("failed to unmarshal tunnel request",
-			slog.String("error", err.Error()),
-		)
-		return
-	}
-
-	if err := req.Validate(); err != nil {
-		a.logger.Error("invalid tunnel request",
-			slog.String("error", err.Error()),
-		)
-		resp := &tunnel.Response{Error: err.Error()}
-		_ = tunnel.WriteResponse(stream, resp)
-		return
-	}
-
-	session := a.getOrCreateSession(ctx, req.SessionID)
-	mcpCtx := a.mcpServer.WithContext(ctx, session)
-
-	result := a.mcpServer.HandleMessage(mcpCtx, req.Payload)
-
-	respPayload, err := json.Marshal(result)
-	if err != nil {
-		resp := &tunnel.Response{Error: fmt.Sprintf("marshal response: %v", err)}
-		_ = tunnel.WriteResponse(stream, resp)
-		return
-	}
-
-	resp := &tunnel.Response{Payload: respPayload}
-	if err := tunnel.WriteResponse(stream, resp); err != nil {
-		a.logger.Error("failed to write tunnel response",
-			slog.String("error", err.Error()),
-		)
-	}
-}
-
 func (a *Agent) getOrCreateSession(ctx context.Context, sessionID string) *server.InProcessSession {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if ts, ok := a.sessions[sessionID]; ok {
 		ts.touch()
+		a.mu.Unlock()
 		return ts.session
 	}
 
@@ -361,6 +261,10 @@ func (a *Agent) getOrCreateSession(ctx context.Context, sessionID string) *serve
 	ts := &trackedSession{session: s}
 	ts.touch()
 	a.sessions[sessionID] = ts
+	a.mu.Unlock()
+
+	// Register outside the lock — RegisterSession may call back into
+	// the MCP server which could acquire its own locks.
 	if err := a.mcpServer.RegisterSession(ctx, s); err != nil {
 		a.logger.Warn("failed to register session",
 			slog.String("session_id", sessionID),
@@ -374,27 +278,32 @@ func (a *Agent) getOrCreateSession(ctx context.Context, sessionID string) *serve
 // clearSessions unregisters and removes all tracked sessions.
 func (a *Agent) clearSessions(ctx context.Context) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	old := a.sessions
+	a.sessions = make(map[string]*trackedSession)
+	a.mu.Unlock()
 
-	for id := range a.sessions {
+	for id := range old {
 		a.mcpServer.UnregisterSession(ctx, id)
 	}
-	a.sessions = make(map[string]*trackedSession)
 }
 
 // cleanStaleSessions removes sessions that have been idle longer than the TTL.
 func (a *Agent) cleanStaleSessions(ctx context.Context) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	now := time.Now().UnixNano()
+	var stale []string
 	for id, ts := range a.sessions {
 		if now-ts.lastActive.Load() > int64(a.cfg.SessionTTL) {
-			a.mcpServer.UnregisterSession(ctx, id)
+			stale = append(stale, id)
 			delete(a.sessions, id)
-			a.logger.Debug("evicted stale session",
-				slog.String("session_id", id),
-			)
 		}
+	}
+	a.mu.Unlock()
+
+	for _, id := range stale {
+		a.mcpServer.UnregisterSession(ctx, id)
+		a.logger.Debug("evicted stale session",
+			slog.String("session_id", id),
+		)
 	}
 }

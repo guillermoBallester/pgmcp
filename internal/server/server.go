@@ -5,18 +5,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	itunnel "github.com/guillermoballestersasso/pgmcp/internal/tunnel"
 	"github.com/mark3labs/mcp-go/server"
 )
-
-// HTTPConfig holds tunable parameters for the HTTP server.
-type HTTPConfig struct {
-	ReadHeaderTimeout time.Duration
-	IdleTimeout       time.Duration
-}
 
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.
 type Server struct {
@@ -27,7 +21,7 @@ type Server struct {
 
 // New creates a new Server wired with the given tunnel and MCP servers.
 func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPServer,
-	httpCfg HTTPConfig, logger *slog.Logger) *Server {
+	httpCfg config.HTTPConfig, logger *slog.Logger) *Server {
 	s := &Server{
 		logger: logger,
 	}
@@ -44,21 +38,16 @@ func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPS
 	return s
 }
 
-// Start begins listening in the background and returns an error channel.
-// A non-nil error is sent if the server fails to start or encounters a fatal error.
-// The channel is closed when the server stops.
-func (s *Server) Start() <-chan error {
-	errCh := make(chan error, 1)
-	go func() {
-		s.logger.Info("HTTP server listening",
-			slog.String("addr", s.httpServer.Addr),
-		)
-		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-		close(errCh)
-	}()
-	return errCh
+// ListenAndServe starts the HTTP server and blocks until it stops.
+// Returns nil if the server was shut down gracefully via Shutdown.
+func (s *Server) ListenAndServe() error {
+	s.logger.Info("HTTP server listening",
+		slog.String("addr", s.httpServer.Addr),
+	)
+	if err := s.httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // Shutdown gracefully shuts down the HTTP server.

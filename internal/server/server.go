@@ -12,6 +12,12 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// HTTPConfig holds tunable parameters for the HTTP server.
+type HTTPConfig struct {
+	ReadHeaderTimeout time.Duration
+	IdleTimeout       time.Duration
+}
+
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.
 type Server struct {
 	httpServer *http.Server
@@ -20,7 +26,8 @@ type Server struct {
 }
 
 // New creates a new Server wired with the given tunnel and MCP servers.
-func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPServer, logger *slog.Logger) *Server {
+func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPServer,
+	httpCfg HTTPConfig, logger *slog.Logger) *Server {
 	s := &Server{
 		logger: logger,
 	}
@@ -30,8 +37,8 @@ func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPS
 	s.httpServer = &http.Server{
 		Addr:              listenAddr,
 		Handler:           s.router,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: httpCfg.ReadHeaderTimeout,
+		IdleTimeout:       httpCfg.IdleTimeout,
 	}
 
 	return s

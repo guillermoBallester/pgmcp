@@ -17,10 +17,15 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-const (
-	sessionTTL             = 10 * time.Minute
-	sessionCleanupInterval = 1 * time.Minute
-)
+// AgentTunnelConfig holds tunable parameters for the tunnel agent.
+type AgentTunnelConfig struct {
+	SessionTTL             time.Duration
+	SessionCleanupInterval time.Duration
+	InitialBackoff         time.Duration
+	MaxBackoff             time.Duration
+	ForceCloseTimeout      time.Duration
+	Yamux                  YamuxConfig
+}
 
 // trackedSession wraps an InProcessSession with last-activity tracking
 // to enable TTL-based eviction of idle sessions.
@@ -41,6 +46,7 @@ type Agent struct {
 	agentVersion string
 	mcpServer    *server.MCPServer
 	logger       *slog.Logger
+	cfg          AgentTunnelConfig
 
 	mu       sync.Mutex
 	sessions map[string]*trackedSession
@@ -48,12 +54,10 @@ type Agent struct {
 	drainMu  sync.Mutex     // protects draining check + wg.Add atomicity
 	wg       sync.WaitGroup // tracks in-flight handleStream goroutines
 	draining atomic.Bool    // true when shutdown initiated
-
-	sessionTTLOverride time.Duration // testing only; zero means use sessionTTL
 }
 
 // NewAgent creates a new tunnel agent.
-func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServer, logger *slog.Logger) *Agent {
+func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServer, cfg AgentTunnelConfig, logger *slog.Logger) *Agent {
 	return &Agent{
 		tunnelURL:    tunnelURL,
 		apiKey:       apiKey,
@@ -61,14 +65,14 @@ func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServe
 		mcpServer:    mcpServer,
 		logger:       logger,
 		sessions:     make(map[string]*trackedSession),
+		cfg:          cfg,
 	}
 }
 
 // Run connects to the cloud server and serves MCP calls. It reconnects
 // with exponential backoff on failure. Returns when ctx is cancelled.
 func (a *Agent) Run(ctx context.Context) error {
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
+	backoff := a.cfg.InitialBackoff
 
 	for {
 		err := a.connectAndServe(ctx)
@@ -87,7 +91,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-time.After(backoff):
 		}
 
-		backoff = min(backoff*2, maxBackoff)
+		backoff = min(backoff*2, a.cfg.MaxBackoff)
 	}
 }
 
@@ -141,7 +145,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 	netConn := websocket.NetConn(connCtx, wsConn, websocket.MessageBinary)
 
 	// Agent is yamux SERVER — the cloud server opens streams to us.
-	session, err := yamux.Server(netConn, newYamuxConfig())
+	session, err := yamux.Server(netConn, newYamuxConfig(a.cfg.Yamux))
 	if err != nil {
 		return fmt.Errorf("yamux server: %w", err)
 	}
@@ -155,7 +159,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 	// Start periodic cleanup of idle sessions.
 	cleanupCtx, cleanupCancel := context.WithCancel(connCtx)
 	go func() {
-		ticker := time.NewTicker(sessionCleanupInterval)
+		ticker := time.NewTicker(a.cfg.SessionCleanupInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -169,7 +173,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 
 	// When the parent context is cancelled, drain in-flight handlers then
 	// close the session. A safety timeout prevents zombie agents if a handler
-	// is stuck — after 30s we force-close regardless.
+	// is stuck — after forceCloseTimeout we force-close regardless.
 	go func() {
 		<-ctx.Done()
 		a.drainMu.Lock()
@@ -185,7 +189,7 @@ func (a *Agent) connectAndServe(ctx context.Context) error {
 		select {
 		case <-done:
 			// All handlers drained gracefully.
-		case <-time.After(30 * time.Second):
+		case <-time.After(a.cfg.ForceCloseTimeout):
 			a.logger.Warn("force-closing tunnel: handlers did not drain in time")
 		}
 
@@ -380,17 +384,12 @@ func (a *Agent) clearSessions(ctx context.Context) {
 
 // cleanStaleSessions removes sessions that have been idle longer than the TTL.
 func (a *Agent) cleanStaleSessions(ctx context.Context) {
-	ttl := a.sessionTTLOverride
-	if ttl == 0 {
-		ttl = sessionTTL
-	}
-
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	now := time.Now().UnixNano()
 	for id, ts := range a.sessions {
-		if now-ts.lastActive.Load() > int64(ttl) {
+		if now-ts.lastActive.Load() > int64(a.cfg.SessionTTL) {
 			a.mcpServer.UnregisterSession(ctx, id)
 			delete(a.sessions, id)
 			a.logger.Debug("evicted stale session",

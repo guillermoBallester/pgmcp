@@ -71,7 +71,18 @@ func run() error {
 	mcpServer := app.NewServer(explorerSvc, querySvc, logger)
 
 	// Tunnel agent — connects outbound to cloud server.
-	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, version, mcpServer, logger)
+	tunnelCfg := itunnel.AgentTunnelConfig{
+		SessionTTL:             cfg.SessionTTL,
+		SessionCleanupInterval: cfg.SessionCleanupInterval,
+		InitialBackoff:         cfg.ReconnectInitialBackoff,
+		MaxBackoff:             cfg.ReconnectMaxBackoff,
+		ForceCloseTimeout:      cfg.ForceCloseTimeout,
+		Yamux: itunnel.YamuxConfig{
+			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
+			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
+		},
+	}
+	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, version, mcpServer, tunnelCfg, logger)
 
 	// Run blocks until ctx is cancelled.
 	runErr := agent.Run(ctx)

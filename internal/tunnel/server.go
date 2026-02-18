@@ -35,15 +35,19 @@ func DefaultHeartbeatConfig() HeartbeatConfig {
 	}
 }
 
-// HandshakeTimeout is the maximum time allowed for the handshake exchange.
-const HandshakeTimeout = 10 * time.Second
+// ServerTunnelConfig holds tunable parameters for the tunnel server.
+type ServerTunnelConfig struct {
+	Heartbeat        HeartbeatConfig
+	HandshakeTimeout time.Duration
+	Yamux            YamuxConfig
+}
 
 // TunnelServer manages the WebSocket connection to the agent and forwards
 // MCP calls through the yamux tunnel.
 type TunnelServer struct {
 	logger        *slog.Logger
 	apiKeys       map[string]bool
-	hbCfg         HeartbeatConfig
+	cfg           ServerTunnelConfig
 	serverVersion string
 
 	mu           sync.RWMutex
@@ -53,8 +57,8 @@ type TunnelServer struct {
 	onDisconnect func()
 }
 
-// NewTunnelServer creates a new tunnel server with the given API keys, heartbeat config, and server version.
-func NewTunnelServer(apiKeys []string, hbCfg HeartbeatConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
+// NewTunnelServer creates a new tunnel server with the given API keys, tunnel config, and server version.
+func NewTunnelServer(apiKeys []string, cfg ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
 	keySet := make(map[string]bool, len(apiKeys))
 	for _, k := range apiKeys {
 		keySet[k] = true
@@ -62,7 +66,7 @@ func NewTunnelServer(apiKeys []string, hbCfg HeartbeatConfig, serverVersion stri
 	return &TunnelServer{
 		logger:        logger,
 		apiKeys:       keySet,
-		hbCfg:         hbCfg,
+		cfg:           cfg,
 		serverVersion: serverVersion,
 	}
 }
@@ -103,7 +107,7 @@ func (s *TunnelServer) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 	netConn := websocket.NetConn(r.Context(), wsConn, websocket.MessageBinary)
 
 	// Cloud server is yamux CLIENT — it opens streams to the agent.
-	session, err := yamux.Client(netConn, newYamuxConfig())
+	session, err := yamux.Client(netConn, newYamuxConfig(s.cfg.Yamux))
 	if err != nil {
 		s.logger.Error("yamux client creation failed",
 			slog.String("error", err.Error()),
@@ -201,7 +205,7 @@ func (s *TunnelServer) ForwardCall(ctx context.Context, sessionID string, payloa
 // runHeartbeat sends pings at the configured interval and closes the session
 // if too many consecutive pings fail.
 func (s *TunnelServer) runHeartbeat(ctx context.Context, session *yamux.Session) {
-	ticker := time.NewTicker(s.hbCfg.Interval)
+	ticker := time.NewTicker(s.cfg.Heartbeat.Interval)
 	defer ticker.Stop()
 
 	misses := 0
@@ -216,10 +220,10 @@ func (s *TunnelServer) runHeartbeat(ctx context.Context, session *yamux.Session)
 				misses++
 				s.logger.Warn("heartbeat ping failed",
 					slog.Int("misses", misses),
-					slog.Int("threshold", s.hbCfg.MissThreshold),
+					slog.Int("threshold", s.cfg.Heartbeat.MissThreshold),
 					slog.String("error", err.Error()),
 				)
-				if misses >= s.hbCfg.MissThreshold {
+				if misses >= s.cfg.Heartbeat.MissThreshold {
 					s.logger.Error("heartbeat miss threshold exceeded, closing session")
 					session.Close() //nolint:errcheck
 					return
@@ -244,7 +248,7 @@ func (s *TunnelServer) sendPing(session *yamux.Session) (rtt time.Duration, drai
 	}
 	defer stream.Close() //nolint:errcheck
 
-	deadline := time.Now().Add(s.hbCfg.Timeout)
+	deadline := time.Now().Add(s.cfg.Heartbeat.Timeout)
 	if err := stream.SetDeadline(deadline); err != nil {
 		return 0, false, fmt.Errorf("set deadline: %w", err)
 	}
@@ -272,7 +276,7 @@ func (s *TunnelServer) performHandshake(session *yamux.Session) (*tunnel.Handsha
 	}
 	defer stream.Close() //nolint:errcheck
 
-	deadline := time.Now().Add(HandshakeTimeout)
+	deadline := time.Now().Add(s.cfg.HandshakeTimeout)
 	if err := stream.SetDeadline(deadline); err != nil {
 		return nil, fmt.Errorf("set handshake deadline: %w", err)
 	}

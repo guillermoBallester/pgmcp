@@ -17,6 +17,16 @@ type ServerConfig struct {
 	HeartbeatInterval      time.Duration
 	HeartbeatTimeout       time.Duration
 	HeartbeatMissThreshold int
+
+	// Tunnel operational params.
+	HandshakeTimeout  time.Duration
+	ShutdownTimeout   time.Duration
+	ReadHeaderTimeout time.Duration
+	IdleTimeout       time.Duration
+
+	// Yamux settings.
+	YamuxKeepAliveInterval time.Duration
+	YamuxWriteTimeout      time.Duration
 }
 
 // LoadServer loads server configuration from environment variables.
@@ -26,6 +36,12 @@ func LoadServer() (*ServerConfig, error) {
 		HeartbeatInterval:      10 * time.Second,
 		HeartbeatTimeout:       5 * time.Second,
 		HeartbeatMissThreshold: 3,
+		HandshakeTimeout:       10 * time.Second,
+		ShutdownTimeout:        10 * time.Second,
+		ReadHeaderTimeout:      10 * time.Second,
+		IdleTimeout:            120 * time.Second,
+		YamuxKeepAliveInterval: 15 * time.Second,
+		YamuxWriteTimeout:      10 * time.Second,
 	}
 
 	if v := os.Getenv("LISTEN_ADDR"); v != "" {
@@ -76,6 +92,54 @@ func LoadServer() (*ServerConfig, error) {
 			return nil, fmt.Errorf("invalid HEARTBEAT_MISS_THRESHOLD: %w", err)
 		}
 		cfg.HeartbeatMissThreshold = n
+	}
+
+	if v := os.Getenv("HANDSHAKE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HANDSHAKE_TIMEOUT: %w", err)
+		}
+		cfg.HandshakeTimeout = d
+	}
+
+	if v := os.Getenv("SHUTDOWN_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SHUTDOWN_TIMEOUT: %w", err)
+		}
+		cfg.ShutdownTimeout = d
+	}
+
+	if v := os.Getenv("READ_HEADER_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid READ_HEADER_TIMEOUT: %w", err)
+		}
+		cfg.ReadHeaderTimeout = d
+	}
+
+	if v := os.Getenv("IDLE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IDLE_TIMEOUT: %w", err)
+		}
+		cfg.IdleTimeout = d
+	}
+
+	if v := os.Getenv("YAMUX_KEEPALIVE_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid YAMUX_KEEPALIVE_INTERVAL: %w", err)
+		}
+		cfg.YamuxKeepAliveInterval = d
+	}
+
+	if v := os.Getenv("YAMUX_WRITE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid YAMUX_WRITE_TIMEOUT: %w", err)
+		}
+		cfg.YamuxWriteTimeout = d
 	}
 
 	return cfg, nil

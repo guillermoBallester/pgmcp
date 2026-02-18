@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/guillermoballestersasso/pgmcp/internal/adapter/postgres"
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
@@ -71,27 +74,18 @@ func run() error {
 	mcpServer := app.NewServer(explorerSvc, querySvc, logger)
 
 	// Tunnel agent — connects outbound to cloud server.
-	tunnelCfg := itunnel.AgentTunnelConfig{
+	tunnelCfg := config.AgentTunnelConfig{
 		SessionTTL:             cfg.SessionTTL,
 		SessionCleanupInterval: cfg.SessionCleanupInterval,
 		InitialBackoff:         cfg.ReconnectInitialBackoff,
 		MaxBackoff:             cfg.ReconnectMaxBackoff,
 		ForceCloseTimeout:      cfg.ForceCloseTimeout,
-		Yamux: itunnel.YamuxConfig{
+		Yamux: config.YamuxConfig{
 			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},
 	}
 	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, version, mcpServer, tunnelCfg, logger)
-
-	// Run blocks until ctx is cancelled.
-	runErr := agent.Run(ctx)
-
-	// --- Shutdown sequence ---
-	logger.Info("shutting down")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.DrainTimeout)
-	defer shutdownCancel()
 
 	// Second signal during shutdown = hard exit.
 	go func() {
@@ -103,20 +97,34 @@ func run() error {
 				slog.String("signal", sig.String()),
 			)
 			os.Exit(1)
-		case <-shutdownCtx.Done():
+		case <-ctx.Done():
 		}
 	}()
 
-	// Drain in-flight handlers before closing the DB pool.
-	if err := agent.Shutdown(shutdownCtx); err != nil {
-		logger.Warn("drain did not complete", slog.String("error", err.Error()))
+	g, ctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		return agent.Run(ctx)
+	})
+
+	// Shutdown trigger: drain in-flight handlers when ctx is cancelled.
+	g.Go(func() error {
+		<-ctx.Done()
+		logger.Info("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.DrainTimeout)
+		defer cancel()
+		if err := agent.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("drain did not complete", slog.String("error", err.Error()))
+		}
+		pool.Close()
+		logger.Info("database pool closed", slog.String("db.system", "postgresql"))
+		return nil
+	})
+
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
 	}
 
-	pool.Close()
-	logger.Info("database pool closed",
-		slog.String("db.system", "postgresql"),
-	)
-
 	logger.Info("shutdown complete")
-	return runErr
+	return nil
 }

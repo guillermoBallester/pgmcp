@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/guillermoballestersasso/pgmcp/internal/server"
 	itunnel "github.com/guillermoballestersasso/pgmcp/internal/tunnel"
@@ -48,14 +50,14 @@ func run() error {
 	)
 
 	// Tunnel server — manages WebSocket connection to the agent.
-	tunnelCfg := itunnel.ServerTunnelConfig{
-		Heartbeat: itunnel.HeartbeatConfig{
+	tunnelCfg := config.ServerTunnelConfig{
+		Heartbeat: config.HeartbeatConfig{
 			Interval:      cfg.HeartbeatInterval,
 			Timeout:       cfg.HeartbeatTimeout,
 			MissThreshold: cfg.HeartbeatMissThreshold,
 		},
 		HandshakeTimeout: cfg.HandshakeTimeout,
-		Yamux: itunnel.YamuxConfig{
+		Yamux: config.YamuxConfig{
 			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},
@@ -67,24 +69,10 @@ func run() error {
 	proxy.Setup()
 
 	// HTTP server with chi routing and middleware.
-	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, server.HTTPConfig{
+	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 	}, logger)
-	errCh := srv.Start()
-
-	// Wait for shutdown signal or server error.
-	select {
-	case <-ctx.Done():
-	case err := <-errCh:
-		return fmt.Errorf("http server: %w", err)
-	}
-
-	// --- Shutdown sequence ---
-	logger.Info("shutting down")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-	defer shutdownCancel()
 
 	// Second signal during shutdown = hard exit.
 	go func() {
@@ -94,12 +82,31 @@ func run() error {
 		case sig := <-sigCh:
 			logger.Warn("forced shutdown", slog.String("signal", sig.String()))
 			os.Exit(1)
-		case <-shutdownCtx.Done():
+		case <-ctx.Done():
 		}
 	}()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("HTTP server shutdown error", slog.String("error", err.Error()))
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Component: HTTP server.
+	g.Go(func() error {
+		return srv.ListenAndServe()
+	})
+
+	// Shutdown trigger: when ctx is cancelled (signal or component failure),
+	// gracefully stop the HTTP server.
+	g.Go(func() error {
+		<-ctx.Done()
+		logger.Info("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	})
+
+	// Wait for all goroutines. The first non-nil error cancels ctx,
+	// which triggers the shutdown goroutine.
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	logger.Info("shutdown complete")

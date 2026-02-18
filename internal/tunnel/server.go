@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
 	"github.com/hashicorp/yamux"
 )
@@ -19,35 +20,12 @@ import (
 // ErrNoAgent is returned when a call is forwarded but no agent is connected.
 var ErrNoAgent = errors.New("no agent connected")
 
-// HeartbeatConfig controls the server-initiated heartbeat behavior.
-type HeartbeatConfig struct {
-	Interval      time.Duration // How often to send pings (default 10s).
-	Timeout       time.Duration // Per-ping read/write deadline (default 5s).
-	MissThreshold int           // Consecutive failures before closing session (default 3).
-}
-
-// DefaultHeartbeatConfig returns sensible defaults for heartbeat.
-func DefaultHeartbeatConfig() HeartbeatConfig {
-	return HeartbeatConfig{
-		Interval:      10 * time.Second,
-		Timeout:       5 * time.Second,
-		MissThreshold: 3,
-	}
-}
-
-// ServerTunnelConfig holds tunable parameters for the tunnel server.
-type ServerTunnelConfig struct {
-	Heartbeat        HeartbeatConfig
-	HandshakeTimeout time.Duration
-	Yamux            YamuxConfig
-}
-
 // TunnelServer manages the WebSocket connection to the agent and forwards
 // MCP calls through the yamux tunnel.
 type TunnelServer struct {
 	logger        *slog.Logger
 	apiKeys       map[string]bool
-	cfg           ServerTunnelConfig
+	cfg           config.ServerTunnelConfig
 	serverVersion string
 
 	mu           sync.RWMutex
@@ -58,7 +36,7 @@ type TunnelServer struct {
 }
 
 // NewTunnelServer creates a new tunnel server with the given API keys, tunnel config, and server version.
-func NewTunnelServer(apiKeys []string, cfg ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
+func NewTunnelServer(apiKeys []string, cfg config.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
 	keySet := make(map[string]bool, len(apiKeys))
 	for _, k := range apiKeys {
 		keySet[k] = true

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
 	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -84,16 +85,16 @@ func newSlowEchoMCPServer(delay time.Duration) *server.MCPServer {
 }
 
 // testYamuxConfig returns a YamuxConfig for tests.
-func testYamuxConfig() YamuxConfig {
-	return YamuxConfig{
+func testYamuxConfig() config.YamuxConfig {
+	return config.YamuxConfig{
 		KeepAliveInterval:      15 * time.Second,
 		ConnectionWriteTimeout: 10 * time.Second,
 	}
 }
 
 // testHeartbeatConfig returns a fast heartbeat config for tests.
-func testHeartbeatConfig() HeartbeatConfig {
-	return HeartbeatConfig{
+func testHeartbeatConfig() config.HeartbeatConfig {
+	return config.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -101,8 +102,8 @@ func testHeartbeatConfig() HeartbeatConfig {
 }
 
 // testAgentTunnelConfig returns an AgentTunnelConfig with sensible test defaults.
-func testAgentTunnelConfig() AgentTunnelConfig {
-	return AgentTunnelConfig{
+func testAgentTunnelConfig() config.AgentTunnelConfig {
+	return config.AgentTunnelConfig{
 		SessionTTL:             10 * time.Minute,
 		SessionCleanupInterval: 1 * time.Minute,
 		InitialBackoff:         1 * time.Second,
@@ -113,8 +114,8 @@ func testAgentTunnelConfig() AgentTunnelConfig {
 }
 
 // testServerTunnelConfig returns a ServerTunnelConfig with the given heartbeat config.
-func testServerTunnelConfig(hbCfg HeartbeatConfig) ServerTunnelConfig {
-	return ServerTunnelConfig{
+func testServerTunnelConfig(hbCfg config.HeartbeatConfig) config.ServerTunnelConfig {
+	return config.ServerTunnelConfig{
 		Heartbeat:        hbCfg,
 		HandshakeTimeout: 10 * time.Second,
 		Yamux:            testYamuxConfig(),
@@ -123,7 +124,7 @@ func testServerTunnelConfig(hbCfg HeartbeatConfig) ServerTunnelConfig {
 
 // setupTunnel creates an agent+server tunnel pair for testing.
 // Returns the agent, tunnelSrv, proxy, httpSrv, and the tunnel URL.
-func setupTunnel(t *testing.T, agentMCP *server.MCPServer, hbCfg HeartbeatConfig) (*Agent, *TunnelServer, *Proxy, *httptest.Server) {
+func setupTunnel(t *testing.T, agentMCP *server.MCPServer, hbCfg config.HeartbeatConfig) (*Agent, *TunnelServer, *Proxy, *httptest.Server) {
 	t.Helper()
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
@@ -434,7 +435,7 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 
 // TestNewYamuxConfig verifies that the shared yamux config helper returns expected values.
 func TestNewYamuxConfig(t *testing.T) {
-	cfg := newYamuxConfig(YamuxConfig{
+	cfg := newYamuxConfig(config.YamuxConfig{
 		KeepAliveInterval:      15 * time.Second,
 		ConnectionWriteTimeout: 10 * time.Second,
 	})
@@ -449,7 +450,7 @@ func TestSessionTTLEviction(t *testing.T) {
 	agentCfg := testAgentTunnelConfig()
 	agentCfg.SessionTTL = 50 * time.Millisecond
 
-	agent, tunnelSrv, _, _ := setupTunnelWithAgentConfig(t, agentMCP, HeartbeatConfig{
+	agent, tunnelSrv, _, _ := setupTunnelWithAgentConfig(t, agentMCP, config.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -491,7 +492,7 @@ func TestSessionTTLEviction(t *testing.T) {
 }
 
 // setupTunnelWithAgentConfig is like setupTunnel but accepts a custom AgentTunnelConfig.
-func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg HeartbeatConfig, agentCfg AgentTunnelConfig) (*Agent, *TunnelServer, *Proxy, *httptest.Server) {
+func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg config.HeartbeatConfig, agentCfg config.AgentTunnelConfig) (*Agent, *TunnelServer, *Proxy, *httptest.Server) {
 	t.Helper()
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
@@ -517,7 +518,7 @@ func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg 
 // TestSessionClearedOnReconnect verifies that sessions are cleared when the agent reconnects.
 func TestSessionClearedOnReconnect(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -575,7 +576,7 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 // TestHeartbeatPingPong verifies the server sends heartbeat pings and receives pongs.
 func TestHeartbeatPingPong(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -604,7 +605,7 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
 
-	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(HeartbeatConfig{
+	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(config.HeartbeatConfig{
 		Interval:      50 * time.Millisecond,
 		Timeout:       50 * time.Millisecond,
 		MissThreshold: 2,
@@ -657,7 +658,7 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 // TestGracefulShutdownDrainsHandlers verifies that in-flight calls complete during shutdown.
 func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 	agentMCP := newSlowEchoMCPServer(200 * time.Millisecond)
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
 		Interval:      10 * time.Second, // Effectively disable heartbeat for this test.
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -706,7 +707,7 @@ func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 // when drain takes too long.
 func TestGracefulShutdownTimeout(t *testing.T) {
 	agentMCP := newSlowEchoMCPServer(500 * time.Millisecond)
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -745,7 +746,7 @@ func TestGracefulShutdownTimeout(t *testing.T) {
 // after the agent starts draining.
 func TestPongReportsDraining(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
 		Interval:      10 * time.Second, // We'll send pings manually.
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -782,7 +783,7 @@ func TestPongReportsDraining(t *testing.T) {
 // TestHeartbeatConcurrentWithCalls verifies heartbeats and tool calls can run concurrently.
 func TestHeartbeatConcurrentWithCalls(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, HeartbeatConfig{
+	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,

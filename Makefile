@@ -29,8 +29,10 @@ vet:
 tidy:
 	go mod tidy
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 docker-build:
-	docker compose build
+	VERSION=$(VERSION) docker compose build
 
 docker-up:
 	docker compose up -d

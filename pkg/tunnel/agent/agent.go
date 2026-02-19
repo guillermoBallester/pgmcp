@@ -1,4 +1,4 @@
-package tunnel
+package agent
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/guillermoballestersasso/pgmcp/internal/config"
+	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
 	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -34,7 +34,7 @@ type Agent struct {
 	agentVersion string
 	mcpServer    *server.MCPServer
 	logger       *slog.Logger
-	cfg          config.AgentTunnelConfig
+	cfg          tunnel.AgentTunnelConfig
 
 	mu       sync.Mutex
 	sessions map[string]*trackedSession
@@ -45,7 +45,7 @@ type Agent struct {
 }
 
 // NewAgent creates a new tunnel agent.
-func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServer, cfg config.AgentTunnelConfig, logger *slog.Logger) *Agent {
+func NewAgent(tunnelURL, apiKey, agentVersion string, mcpServer *server.MCPServer, cfg tunnel.AgentTunnelConfig, logger *slog.Logger) *Agent {
 	return &Agent{
 		tunnelURL:    tunnelURL,
 		apiKey:       apiKey,
@@ -157,7 +157,7 @@ func (a *Agent) dial(ctx context.Context) (*yamux.Session, context.Context, cont
 	netConn := websocket.NetConn(connCtx, wsConn, websocket.MessageBinary)
 
 	// Agent is yamux SERVER — the cloud server opens streams to us.
-	session, err := yamux.Server(netConn, newYamuxConfig(a.cfg.Yamux))
+	session, err := yamux.Server(netConn, tunnel.NewYamuxConfig(a.cfg.Yamux))
 	if err != nil {
 		connCancel()
 		wsConn.CloseNow() //nolint:errcheck

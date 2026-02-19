@@ -1,0 +1,10 @@
+linters:
+  enable:
+    - misspell
+    - gofmt
+    - goimports
+    - bodyclose
+    - noctx
+    - unparam
+  disable:
+    - depguard

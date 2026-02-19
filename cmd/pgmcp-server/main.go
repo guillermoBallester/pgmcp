@@ -13,6 +13,7 @@ import (
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/guillermoballestersasso/pgmcp/internal/server"
 	itunnel "github.com/guillermoballestersasso/pgmcp/internal/tunnel"
+	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
@@ -50,14 +51,14 @@ func run() error {
 	)
 
 	// Tunnel server — manages WebSocket connection to the agent.
-	tunnelCfg := config.ServerTunnelConfig{
-		Heartbeat: config.HeartbeatConfig{
+	tunnelCfg := tunnel.ServerTunnelConfig{
+		Heartbeat: tunnel.HeartbeatConfig{
 			Interval:      cfg.HeartbeatInterval,
 			Timeout:       cfg.HeartbeatTimeout,
 			MissThreshold: cfg.HeartbeatMissThreshold,
 		},
 		HandshakeTimeout: cfg.HandshakeTimeout,
-		Yamux: config.YamuxConfig{
+		Yamux: tunnel.YamuxConfig{
 			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},

@@ -13,10 +13,11 @@ import (
 
 	"github.com/guillermoballestersasso/pgmcp/internal/adapter/postgres"
 	"github.com/guillermoballestersasso/pgmcp/internal/config"
-	itunnel "github.com/guillermoballestersasso/pgmcp/internal/tunnel"
 	"github.com/guillermoballestersasso/pgmcp/pkg/app"
 	"github.com/guillermoballestersasso/pgmcp/pkg/core/domain"
 	"github.com/guillermoballestersasso/pgmcp/pkg/core/service"
+	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
+	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel/agent"
 )
 
 var version = "dev"
@@ -71,21 +72,21 @@ func run() error {
 	querySvc := service.NewQueryService(validator, executor, logger)
 
 	// MCP server with real tool handlers (same as standalone binary).
-	mcpServer := app.NewServer(explorerSvc, querySvc, logger)
+	mcpServer := app.NewServer(version, explorerSvc, querySvc, logger)
 
 	// Tunnel agent — connects outbound to cloud server.
-	tunnelCfg := config.AgentTunnelConfig{
+	tunnelCfg := tunnel.AgentTunnelConfig{
 		SessionTTL:             cfg.SessionTTL,
 		SessionCleanupInterval: cfg.SessionCleanupInterval,
 		InitialBackoff:         cfg.ReconnectInitialBackoff,
 		MaxBackoff:             cfg.ReconnectMaxBackoff,
 		ForceCloseTimeout:      cfg.ForceCloseTimeout,
-		Yamux: config.YamuxConfig{
+		Yamux: tunnel.YamuxConfig{
 			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},
 	}
-	agent := itunnel.NewAgent(cfg.TunnelURL, cfg.APIKey, version, mcpServer, tunnelCfg, logger)
+	agent := agent.NewAgent(cfg.TunnelURL, cfg.APIKey, version, mcpServer, tunnelCfg, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {

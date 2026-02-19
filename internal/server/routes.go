@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/guillermoBallester/isthmus/internal/store"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -30,6 +31,15 @@ func (s *Server) setupRoutes(tunnelSrv *itunnel.TunnelServer, mcpSrv *mcpserver.
 	// Admin API — only available when Supabase is configured.
 	if queries != nil && s.adminSecret != "" {
 		r.Route("/api", func(api chi.Router) {
+			if s.corsOrigin != "" {
+				api.Use(cors.Handler(cors.Options{
+					AllowedOrigins:   []string{s.corsOrigin},
+					AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
+					AllowedHeaders:   []string{"Authorization", "Content-Type"},
+					AllowCredentials: false,
+					MaxAge:           300,
+				}))
+			}
 			api.Use(s.adminAuth)
 			api.Post("/keys", s.handleCreateKey(queries))
 			api.Get("/keys", s.handleListKeys(queries))

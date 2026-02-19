@@ -18,6 +18,7 @@ import (
 	"github.com/guillermoBallester/isthmus/internal/config"
 	"github.com/guillermoBallester/isthmus/internal/server"
 	"github.com/guillermoBallester/isthmus/internal/store"
+	"github.com/guillermoBallester/isthmus/internal/store/migrations"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -113,7 +114,7 @@ func run() error {
 	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, queries, cfg.AdminSecret, logger)
+	}, queries, cfg.AdminSecret, cfg.CORSOrigin, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {
@@ -162,12 +163,12 @@ func runMigrations(dbURL string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	goose.SetBaseFS(nil)
+	goose.SetBaseFS(migrations.FS)
 	if err := goose.SetDialect("postgres"); err != nil {
 		return fmt.Errorf("setting goose dialect: %w", err)
 	}
 
-	if err := goose.Up(db, "internal/store/migrations"); err != nil {
+	if err := goose.Up(db, "."); err != nil {
 		return fmt.Errorf("applying migrations: %w", err)
 	}
 

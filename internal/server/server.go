@@ -18,7 +18,6 @@ type Server struct {
 	httpServer  *http.Server
 	router      chi.Router
 	logger      *slog.Logger
-	queries     store.DBTX // nil when running in static-key mode
 	adminSecret string
 }
 

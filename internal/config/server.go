@@ -13,6 +13,8 @@ import (
 type ServerConfig struct {
 	ListenAddr             string
 	APIKeys                []string
+	SupabaseDBURL          string
+	AdminSecret            string
 	LogLevel               slog.Level
 	HeartbeatInterval      time.Duration
 	HeartbeatTimeout       time.Duration
@@ -48,18 +50,26 @@ func LoadServer() (*ServerConfig, error) {
 		cfg.ListenAddr = v
 	}
 
+	cfg.SupabaseDBURL = os.Getenv("SUPABASE_DB_URL")
+	cfg.AdminSecret = os.Getenv("ADMIN_SECRET")
+
 	keysRaw := os.Getenv("API_KEYS")
-	if keysRaw == "" {
-		return nil, fmt.Errorf("API_KEYS environment variable is required")
-	}
-	for _, k := range strings.Split(keysRaw, ",") {
-		k = strings.TrimSpace(k)
-		if k != "" {
-			cfg.APIKeys = append(cfg.APIKeys, k)
+	if keysRaw != "" {
+		for _, k := range strings.Split(keysRaw, ",") {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				cfg.APIKeys = append(cfg.APIKeys, k)
+			}
 		}
 	}
-	if len(cfg.APIKeys) == 0 {
-		return nil, fmt.Errorf("API_KEYS must contain at least one key")
+
+	// At least one auth method must be configured.
+	if cfg.SupabaseDBURL == "" && len(cfg.APIKeys) == 0 {
+		return nil, fmt.Errorf("either SUPABASE_DB_URL or API_KEYS must be set")
+	}
+
+	if cfg.SupabaseDBURL != "" && cfg.AdminSecret == "" {
+		return nil, fmt.Errorf("ADMIN_SECRET is required when SUPABASE_DB_URL is set")
 	}
 
 	if v := os.Getenv("LOG_LEVEL"); v != "" {

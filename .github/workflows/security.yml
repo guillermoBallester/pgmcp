@@ -43,13 +43,13 @@ jobs:
 
       - name: Build Docker images
         run: |
-          docker build -f Dockerfile.agent -t pgmcp-agent:security-scan .
-          docker build -f Dockerfile.server -t pgmcp-server:security-scan .
+          docker build -f Dockerfile.agent -t isthmus-agent:security-scan .
+          docker build -f Dockerfile.server -t isthmus-server:security-scan .
 
       - name: Run Trivy vulnerability scanner (agent image)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: pgmcp-agent:security-scan
+          image-ref: isthmus-agent:security-scan
           severity: CRITICAL,HIGH
           format: sarif
           output: trivy-image-agent.sarif
@@ -57,7 +57,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (server image)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: pgmcp-server:security-scan
+          image-ref: isthmus-server:security-scan
           severity: CRITICAL,HIGH
           format: sarif
           output: trivy-image-server.sarif

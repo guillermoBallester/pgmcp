@@ -7,8 +7,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guillermoballestersasso/pgmcp/internal/config"
-	itunnel "github.com/guillermoballestersasso/pgmcp/internal/tunnel"
+	"github.com/guillermoBallester/isthmus/internal/config"
+	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	"github.com/mark3labs/mcp-go/server"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/pkg/core/ports"
 )
 
 func (e *Explorer) fetchTableComment(ctx context.Context, schema, tableName string) (string, error) {

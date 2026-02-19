@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
+	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 	"github.com/hashicorp/yamux"
 )
 

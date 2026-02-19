@@ -3,7 +3,7 @@ package server
 import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
-	itunnel "github.com/guillermoballestersasso/pgmcp/internal/tunnel"
+	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 

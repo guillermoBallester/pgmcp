@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
+	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 )
 
 func (a *Agent) handleStream(ctx context.Context, stream net.Conn) {

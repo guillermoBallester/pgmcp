@@ -3,7 +3,7 @@ package app
 import (
 	"log/slog"
 
-	"github.com/guillermoballestersasso/pgmcp/pkg/core/service"
+	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	"github.com/mark3labs/mcp-go/server"
 )
 

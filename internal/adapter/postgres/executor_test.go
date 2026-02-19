@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guillermoballestersasso/pgmcp/internal/adapter/postgres"
+	"github.com/guillermoBallester/isthmus/internal/adapter/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

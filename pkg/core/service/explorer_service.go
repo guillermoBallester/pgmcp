@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/pkg/core/ports"
 )
 
 // ExplorerService wraps SchemaExplorer. Pass-through for now;

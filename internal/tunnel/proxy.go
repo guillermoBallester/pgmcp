@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
+	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )

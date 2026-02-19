@@ -7,10 +7,10 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func NewServer(explorer *service.ExplorerService, query *service.QueryService, logger *slog.Logger) *server.MCPServer {
+func NewServer(version string, explorer *service.ExplorerService, query *service.QueryService, logger *slog.Logger) *server.MCPServer {
 	s := server.NewMCPServer(
 		serverName,
-		serverVersion,
+		version,
 		server.WithHooks(toolCallHooks(logger)),
 	)
 

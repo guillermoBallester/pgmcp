@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/guillermoballestersasso/pgmcp/internal/config"
+	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -48,7 +48,7 @@ const defaultDiscoveryTimeout = 30 * time.Second
 type Proxy struct {
 	tunnel    *TunnelServer
 	mcpServer *server.MCPServer
-	cfg       config.ServerTunnelConfig
+	cfg       tunnel.ServerTunnelConfig
 	logger    *slog.Logger
 
 	mu         sync.Mutex
@@ -57,7 +57,7 @@ type Proxy struct {
 }
 
 // NewProxy creates a new proxy that bridges the tunnel and cloud MCPServer.
-func NewProxy(tunnel *TunnelServer, mcpServer *server.MCPServer, cfg config.ServerTunnelConfig, logger *slog.Logger) *Proxy {
+func NewProxy(tunnel *TunnelServer, mcpServer *server.MCPServer, cfg tunnel.ServerTunnelConfig, logger *slog.Logger) *Proxy {
 	return &Proxy{
 		tunnel:    tunnel,
 		mcpServer: mcpServer,

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
 	"github.com/hashicorp/yamux"
 )
@@ -25,7 +24,7 @@ var ErrNoAgent = errors.New("no agent connected")
 type TunnelServer struct {
 	logger        *slog.Logger
 	apiKeys       map[string]bool
-	cfg           config.ServerTunnelConfig
+	cfg           tunnel.ServerTunnelConfig
 	serverVersion string
 
 	mu           sync.RWMutex
@@ -36,7 +35,7 @@ type TunnelServer struct {
 }
 
 // NewTunnelServer creates a new tunnel server with the given API keys, tunnel config, and server version.
-func NewTunnelServer(apiKeys []string, cfg config.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
+func NewTunnelServer(apiKeys []string, cfg tunnel.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
 	keySet := make(map[string]bool, len(apiKeys))
 	for _, k := range apiKeys {
 		keySet[k] = true
@@ -85,7 +84,7 @@ func (s *TunnelServer) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 	netConn := websocket.NetConn(r.Context(), wsConn, websocket.MessageBinary)
 
 	// Cloud server is yamux CLIENT — it opens streams to the agent.
-	session, err := yamux.Client(netConn, newYamuxConfig(s.cfg.Yamux))
+	session, err := yamux.Client(netConn, tunnel.NewYamuxConfig(s.cfg.Yamux))
 	if err != nil {
 		s.logger.Error("yamux client creation failed",
 			slog.String("error", err.Error()),

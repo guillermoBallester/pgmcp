@@ -13,7 +13,7 @@
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![MCP](https://img.shields.io/badge/MCP-2025--03--26-blueviolet)](https://modelcontextprotocol.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 ---
 
@@ -142,6 +142,12 @@ When `SCHEMAS` is not set, all non-system schemas are exposed. When set, only th
 
 ## MCP Tools
 
+### `list_schemas`
+
+Lists all available database schemas. Call this first to discover what schemas exist.
+
+**Parameters:** none
+
 ### `list_tables`
 
 Lists all tables in the database with their schema, estimated row count, and comments.
@@ -154,6 +160,7 @@ Returns detailed metadata for a table: columns (name, type, nullable, default, c
 
 **Parameters:**
 - `table_name` (string, required)
+- `schema` (string, optional — resolves automatically if omitted)
 
 ### `query`
 
@@ -415,6 +422,14 @@ pgmcp is evolving into a SaaS platform that lets LLMs query private, on-premise 
 - [ ] **Dashboard** — audit log viewer, agent status, usage stats
 - [ ] **Column masking** — mask/hide sensitive columns in query results
 
+## Version Tagging
+
+Releases follow [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`.
+
+- Tags are created via [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository)
+- The binary version is injected at build time via `-ldflags "-X main.version=v1.2.3"`
+- After the repo split, agent and server versions will be tracked independently
+
 ## License
 
-[MIT](LICENSE)
+[Apache 2.0](LICENSE)

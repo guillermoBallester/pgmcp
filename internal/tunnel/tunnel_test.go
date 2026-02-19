@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel"
+	"github.com/guillermoballestersasso/pgmcp/pkg/tunnel/agent"
 	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -90,16 +90,16 @@ func newSlowEchoMCPServer(delay time.Duration) *server.MCPServer {
 }
 
 // testYamuxConfig returns a YamuxConfig for tests.
-func testYamuxConfig() config.YamuxConfig {
-	return config.YamuxConfig{
+func testYamuxConfig() tunnel.YamuxConfig {
+	return tunnel.YamuxConfig{
 		KeepAliveInterval:      15 * time.Second,
 		ConnectionWriteTimeout: 10 * time.Second,
 	}
 }
 
 // testHeartbeatConfig returns a fast heartbeat config for tests.
-func testHeartbeatConfig() config.HeartbeatConfig {
-	return config.HeartbeatConfig{
+func testHeartbeatConfig() tunnel.HeartbeatConfig {
+	return tunnel.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -107,8 +107,8 @@ func testHeartbeatConfig() config.HeartbeatConfig {
 }
 
 // testAgentTunnelConfig returns an AgentTunnelConfig with sensible test defaults.
-func testAgentTunnelConfig() config.AgentTunnelConfig {
-	return config.AgentTunnelConfig{
+func testAgentTunnelConfig() tunnel.AgentTunnelConfig {
+	return tunnel.AgentTunnelConfig{
 		SessionTTL:             10 * time.Minute,
 		SessionCleanupInterval: 1 * time.Minute,
 		InitialBackoff:         1 * time.Second,
@@ -119,8 +119,8 @@ func testAgentTunnelConfig() config.AgentTunnelConfig {
 }
 
 // testServerTunnelConfig returns a ServerTunnelConfig with the given heartbeat config.
-func testServerTunnelConfig(hbCfg config.HeartbeatConfig) config.ServerTunnelConfig {
-	return config.ServerTunnelConfig{
+func testServerTunnelConfig(hbCfg tunnel.HeartbeatConfig) tunnel.ServerTunnelConfig {
+	return tunnel.ServerTunnelConfig{
 		Heartbeat:        hbCfg,
 		HandshakeTimeout: 10 * time.Second,
 		Yamux:            testYamuxConfig(),
@@ -129,7 +129,7 @@ func testServerTunnelConfig(hbCfg config.HeartbeatConfig) config.ServerTunnelCon
 
 // setupTunnel creates an agent+server tunnel pair for testing.
 // Returns the agent, tunnelSrv, proxy, httpSrv, and the tunnel URL.
-func setupTunnel(t *testing.T, agentMCP *server.MCPServer, hbCfg config.HeartbeatConfig) (*Agent, *TunnelServer, *Proxy, *httptest.Server) {
+func setupTunnel(t *testing.T, agentMCP *server.MCPServer, hbCfg tunnel.HeartbeatConfig) (*agent.Agent, *TunnelServer, *Proxy, *httptest.Server) {
 	t.Helper()
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
@@ -147,9 +147,9 @@ func setupTunnel(t *testing.T, agentMCP *server.MCPServer, hbCfg config.Heartbea
 	t.Cleanup(httpSrv.Close)
 
 	tunnelURL := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/tunnel"
-	agent := NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
+	ag := agent.NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
 
-	return agent, tunnelSrv, proxy, httpSrv
+	return ag, tunnelSrv, proxy, httpSrv
 }
 
 // TestTunnelEndToEnd tests the full flow:
@@ -183,7 +183,7 @@ func TestTunnelEndToEnd(t *testing.T) {
 
 	// --- Agent side ---
 	agentMCP := newAgentMCPServer()
-	agent := NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
+	ag := agent.NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -191,7 +191,7 @@ func TestTunnelEndToEnd(t *testing.T) {
 	// Run agent in background.
 	agentErr := make(chan error, 1)
 	go func() {
-		agentErr <- agent.Run(ctx)
+		agentErr <- ag.Run(ctx)
 	}()
 
 	// Wait for the agent to connect and proxy to discover tools.
@@ -304,13 +304,13 @@ func TestTunnelAuthRejected(t *testing.T) {
 	tunnelURL := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/tunnel"
 
 	agentMCP := newAgentMCPServer()
-	agent := NewAgent(tunnelURL, "wrong-key", "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
+	ag := agent.NewAgent(tunnelURL, "wrong-key", "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// connectAndServe should fail because auth is rejected.
-	err := agent.connectAndServe(ctx)
+	// ConnectAndServe should fail because auth is rejected.
+	err := ag.ConnectAndServe(ctx)
 	require.Error(t, err)
 	assert.False(t, tunnelSrv.Connected())
 }
@@ -347,12 +347,12 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 	tunnelURL := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/tunnel"
 
 	agentMCP := newAgentMCPServer()
-	agent := NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
+	ag := agent.NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	// Wait for tool discovery.
 	require.Eventually(t, func() bool {
@@ -440,7 +440,7 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 
 // TestNewYamuxConfig verifies that the shared yamux config helper returns expected values.
 func TestNewYamuxConfig(t *testing.T) {
-	cfg := newYamuxConfig(config.YamuxConfig{
+	cfg := tunnel.NewYamuxConfig(tunnel.YamuxConfig{
 		KeepAliveInterval:      15 * time.Second,
 		ConnectionWriteTimeout: 10 * time.Second,
 	})
@@ -455,7 +455,7 @@ func TestSessionTTLEviction(t *testing.T) {
 	agentCfg := testAgentTunnelConfig()
 	agentCfg.SessionTTL = 50 * time.Millisecond
 
-	agent, tunnelSrv, _, _ := setupTunnelWithAgentConfig(t, agentMCP, config.HeartbeatConfig{
+	ag, tunnelSrv, _, _ := setupTunnelWithAgentConfig(t, agentMCP, tunnel.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -464,7 +464,7 @@ func TestSessionTTLEviction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -477,27 +477,22 @@ func TestSessionTTLEviction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Session should exist (along with the "discovery" session from proxy).
-	agent.mu.Lock()
-	_, hasTTLSess := agent.sessions["ttl-sess"]
-	agent.mu.Unlock()
-	assert.True(t, hasTTLSess, "ttl-sess session should exist after call")
+	assert.True(t, ag.HasSession("ttl-sess"), "ttl-sess session should exist after call")
 
 	// Wait for TTL to expire.
 	time.Sleep(100 * time.Millisecond)
 
 	// Manually trigger cleanup.
-	agent.cleanStaleSessions(ctx)
+	ag.CleanStaleSessions(ctx)
 
 	// All sessions should be evicted (both ttl-sess and discovery).
-	agent.mu.Lock()
-	assert.Empty(t, agent.sessions, "all sessions should be evicted after TTL")
-	agent.mu.Unlock()
+	assert.Equal(t, 0, ag.SessionCount(), "all sessions should be evicted after TTL")
 
 	cancel()
 }
 
 // setupTunnelWithAgentConfig is like setupTunnel but accepts a custom AgentTunnelConfig.
-func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg config.HeartbeatConfig, agentCfg config.AgentTunnelConfig) (*Agent, *TunnelServer, *Proxy, *httptest.Server) {
+func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg tunnel.HeartbeatConfig, agentCfg tunnel.AgentTunnelConfig) (*agent.Agent, *TunnelServer, *Proxy, *httptest.Server) {
 	t.Helper()
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
@@ -516,15 +511,15 @@ func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg 
 	t.Cleanup(httpSrv.Close)
 
 	tunnelURL := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/tunnel"
-	agent := NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, agentCfg, logger)
+	ag := agent.NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, agentCfg, logger)
 
-	return agent, tunnelSrv, proxy, httpSrv
+	return ag, tunnelSrv, proxy, httpSrv
 }
 
 // TestSessionClearedOnReconnect verifies that sessions are cleared when the agent reconnects.
 func TestSessionClearedOnReconnect(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
+	ag, tunnelSrv, _, _ := setupTunnel(t, agentMCP, tunnel.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -532,7 +527,7 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -544,10 +539,7 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 	))
 	require.NoError(t, err)
 
-	agent.mu.Lock()
-	_, hasReconnSess := agent.sessions["reconnect-sess"]
-	agent.mu.Unlock()
-	assert.True(t, hasReconnSess, "reconnect-sess session should exist after call")
+	assert.True(t, ag.HasSession("reconnect-sess"), "reconnect-sess session should exist after call")
 
 	// Disconnect by cancelling context.
 	cancel()
@@ -562,8 +554,8 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 	defer cancel2()
 
 	// Reset draining so agent can reconnect.
-	agent.draining.Store(false)
-	go func() { _ = agent.Run(ctx2) }()
+	ag.SetDraining(false)
+	go func() { _ = ag.Run(ctx2) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -571,10 +563,7 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 
 	// The old "reconnect-sess" session should be gone (cleared on reconnect).
 	// A new "discovery" session may exist from the proxy's tool discovery callback.
-	agent.mu.Lock()
-	_, hasOldSess := agent.sessions["reconnect-sess"]
-	agent.mu.Unlock()
-	assert.False(t, hasOldSess, "old session should be cleared after reconnect")
+	assert.False(t, ag.HasSession("reconnect-sess"), "old session should be cleared after reconnect")
 
 	cancel2()
 }
@@ -582,7 +571,7 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 // TestHeartbeatPingPong verifies the server sends heartbeat pings and receives pongs.
 func TestHeartbeatPingPong(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
+	ag, tunnelSrv, _, _ := setupTunnel(t, agentMCP, tunnel.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -591,7 +580,7 @@ func TestHeartbeatPingPong(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -611,7 +600,7 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
 
-	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(config.HeartbeatConfig{
+	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(tunnel.HeartbeatConfig{
 		Interval:      50 * time.Millisecond,
 		Timeout:       50 * time.Millisecond,
 		MissThreshold: 2,
@@ -629,13 +618,13 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 
 	tunnelURL := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/tunnel"
 	agentMCP := newAgentMCPServer()
-	agent := NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
+	ag := agent.NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	agentErr := make(chan error, 1)
-	go func() { agentErr <- agent.Run(ctx) }()
+	go func() { agentErr <- ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -664,7 +653,7 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 // TestGracefulShutdownDrainsHandlers verifies that in-flight calls complete during shutdown.
 func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 	agentMCP := newSlowEchoMCPServer(200 * time.Millisecond)
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
+	ag, tunnelSrv, _, _ := setupTunnel(t, agentMCP, tunnel.HeartbeatConfig{
 		Interval:      10 * time.Second, // Effectively disable heartbeat for this test.
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -673,7 +662,7 @@ func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -697,7 +686,7 @@ func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
-	err := agent.Shutdown(shutdownCtx)
+	err := ag.Shutdown(shutdownCtx)
 	assert.NoError(t, err, "Shutdown should complete without error")
 
 	// The in-flight call should have completed.
@@ -713,7 +702,7 @@ func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 // when drain takes too long.
 func TestGracefulShutdownTimeout(t *testing.T) {
 	agentMCP := newSlowEchoMCPServer(500 * time.Millisecond)
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
+	ag, tunnelSrv, _, _ := setupTunnel(t, agentMCP, tunnel.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -722,7 +711,7 @@ func TestGracefulShutdownTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -744,7 +733,7 @@ func TestGracefulShutdownTimeout(t *testing.T) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer shutdownCancel()
 
-	err := agent.Shutdown(shutdownCtx)
+	err := ag.Shutdown(shutdownCtx)
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "Shutdown should time out")
 }
 
@@ -752,7 +741,7 @@ func TestGracefulShutdownTimeout(t *testing.T) {
 // after the agent starts draining.
 func TestPongReportsDraining(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
+	ag, tunnelSrv, _, _ := setupTunnel(t, agentMCP, tunnel.HeartbeatConfig{
 		Interval:      10 * time.Second, // We'll send pings manually.
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -761,7 +750,7 @@ func TestPongReportsDraining(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -777,7 +766,7 @@ func TestPongReportsDraining(t *testing.T) {
 	assert.False(t, draining, "pong should not report draining before shutdown")
 
 	// Set agent to draining.
-	agent.draining.Store(true)
+	ag.SetDraining(true)
 
 	_, draining, err = tunnelSrv.sendPing(session)
 	require.NoError(t, err)
@@ -789,7 +778,7 @@ func TestPongReportsDraining(t *testing.T) {
 // TestHeartbeatConcurrentWithCalls verifies heartbeats and tool calls can run concurrently.
 func TestHeartbeatConcurrentWithCalls(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, _, _ := setupTunnel(t, agentMCP, config.HeartbeatConfig{
+	ag, tunnelSrv, _, _ := setupTunnel(t, agentMCP, tunnel.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -798,7 +787,7 @@ func TestHeartbeatConcurrentWithCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	require.Eventually(t, func() bool {
 		return tunnelSrv.Connected()
@@ -843,12 +832,12 @@ func TestHeartbeatConcurrentWithCalls(t *testing.T) {
 // and tool discovery works after handshake.
 func TestHandshakeSuccess(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	agent, tunnelSrv, proxy, _ := setupTunnel(t, agentMCP, testHeartbeatConfig())
+	ag, tunnelSrv, proxy, _ := setupTunnel(t, agentMCP, testHeartbeatConfig())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = agent.Run(ctx) }()
+	go func() { _ = ag.Run(ctx) }()
 
 	// Agent should connect and handshake should complete.
 	require.Eventually(t, func() bool {
@@ -934,14 +923,14 @@ func TestHandshakeVersionMismatch(t *testing.T) {
 
 	tunnelURL := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/tunnel"
 	agentMCP := newAgentMCPServer()
-	agent := NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
+	ag := agent.NewAgent(tunnelURL, apiKey, "0.1.0", agentMCP, testAgentTunnelConfig(), logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Run one connection attempt — the agent will connect, handshake will fail
 	// on the server side (version mismatch error in ack), and agent continues.
-	go func() { _ = agent.connectAndServe(ctx) }()
+	go func() { _ = ag.ConnectAndServe(ctx) }()
 
 	select {
 	case <-disconnected:

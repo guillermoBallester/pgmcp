@@ -3,15 +3,14 @@ package tunnel
 import (
 	"io"
 
-	"github.com/guillermoballestersasso/pgmcp/internal/config"
 	"github.com/hashicorp/yamux"
 )
 
-// newYamuxConfig returns a yamux configuration tuned for long-lived tunnel
+// NewYamuxConfig returns a yamux configuration tuned for long-lived tunnel
 // connections behind cloud load balancers. The keepalive interval ensures
 // that idle connections are not dropped by intermediaries (most ALBs/proxies
 // use a 60s idle timeout).
-func newYamuxConfig(cfg config.YamuxConfig) *yamux.Config {
+func NewYamuxConfig(cfg YamuxConfig) *yamux.Config {
 	ycfg := yamux.DefaultConfig()
 	ycfg.EnableKeepAlive = true
 	ycfg.KeepAliveInterval = cfg.KeepAliveInterval

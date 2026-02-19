@@ -11,10 +11,7 @@ import (
 )
 
 // Server metadata
-const (
-	serverName    = "pgmcp"
-	serverVersion = "0.1.0"
-)
+const serverName = "pgmcp"
 
 // Tool descriptions
 const (

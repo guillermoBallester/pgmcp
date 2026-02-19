@@ -1,4 +1,4 @@
--- Demo database: a small e-commerce schema for testing pgmcp
+-- Demo database: a small e-commerce schema for testing Isthmus
 
 CREATE TABLE customers (
     id         SERIAL PRIMARY KEY,

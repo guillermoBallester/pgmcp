@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/guillermoballestersasso/pgmcp/pkg/core/service"
+	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
 // Server metadata
-const serverName = "pgmcp"
+const serverName = "isthmus"
 
 // Tool descriptions
 const (

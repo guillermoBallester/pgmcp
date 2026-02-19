@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	itunnel "github.com/guillermoballestersasso/pgmcp/internal/tunnel"
+	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 )
 
 // handleHealth returns a liveness probe handler. Always responds 200 if the

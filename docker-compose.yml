@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: pgmcp
-      POSTGRES_PASSWORD: pgmcp
-      POSTGRES_DB: pgmcp
+      POSTGRES_USER: isthmus
+      POSTGRES_PASSWORD: isthmus
+      POSTGRES_DB: isthmus
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pgmcp"]
+      test: ["CMD-SHELL", "pg_isready -U isthmus"]
       interval: 2s
       timeout: 5s
       retries: 10
@@ -29,7 +29,7 @@ services:
       LOG_LEVEL: "debug"
     restart: unless-stopped
     healthcheck:
-      test: ["/usr/local/bin/healthcheck"]
+      test: ["CMD", "/usr/local/bin/healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -47,7 +47,7 @@ services:
       server:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://pgmcp:pgmcp@postgres:5432/pgmcp?sslmode=disable
+      DATABASE_URL: postgres://isthmus:isthmus@postgres:5432/isthmus?sslmode=disable
       TUNNEL_URL: ws://server:8080/tunnel
       API_KEY: "dev-key"
       READ_ONLY: "true"

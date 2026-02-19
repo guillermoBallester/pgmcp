@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/guillermoballestersasso/pgmcp/pkg/core/domain"
-	"github.com/guillermoballestersasso/pgmcp/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/pkg/core/domain"
+	"github.com/guillermoBallester/isthmus/pkg/core/ports"
 )
 
 // QueryService orchestrates SQL validation (domain) and execution (infrastructure).

@@ -62,5 +62,5 @@ jobs:
 
       - name: Build Docker images
         run: |
-          docker build -f Dockerfile.agent -t pgmcp-agent:ci .
-          docker build -f Dockerfile.server -t pgmcp-server:ci .
+          docker build -f Dockerfile.agent -t isthmus-agent:ci .
+          docker build -f Dockerfile.server -t isthmus-server:ci .

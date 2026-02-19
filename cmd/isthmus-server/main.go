@@ -2,16 +2,22 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
 	"github.com/guillermoBallester/isthmus/internal/server"
+	"github.com/guillermoBallester/isthmus/internal/store"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -44,6 +50,40 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	// Build authenticator based on configuration.
+	var (
+		authenticator itunnel.Authenticator
+		queries       *store.Queries
+		pool          *pgxpool.Pool
+	)
+
+	if cfg.SupabaseDBURL != "" {
+		pool, err = pgxpool.New(ctx, cfg.SupabaseDBURL)
+		if err != nil {
+			return fmt.Errorf("connecting to supabase: %w", err)
+		}
+		defer pool.Close()
+
+		logger.Info("supabase database connected")
+
+		// Run goose migrations.
+		if err := runMigrations(cfg.SupabaseDBURL); err != nil {
+			return fmt.Errorf("running migrations: %w", err)
+		}
+		logger.Info("database migrations applied")
+
+		queries = store.New(pool)
+		supaAuth := auth.NewSupabaseAuthenticator(queries, logger)
+		authenticator = supaAuth
+
+		logger.Info("using supabase authenticator")
+	} else {
+		authenticator = auth.NewStaticAuthenticator(cfg.APIKeys)
+		logger.Info("using static api key authenticator",
+			slog.Int("key_count", len(cfg.APIKeys)),
+		)
+	}
+
 	// Cloud MCPServer — starts with zero tools. Tools are added dynamically
 	// when the agent connects and removed when it disconnects.
 	mcpSrv := mcpserver.NewMCPServer("isthmus-cloud", version,
@@ -63,7 +103,7 @@ func run() error {
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},
 	}
-	tunnelSrv := itunnel.NewTunnelServer(cfg.APIKeys, tunnelCfg, version, logger)
+	tunnelSrv := itunnel.NewTunnelServer(authenticator, tunnelCfg, version, logger)
 
 	// Proxy — discovers agent tools and registers proxy handlers on the cloud MCPServer.
 	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, tunnelCfg, logger)
@@ -73,7 +113,7 @@ func run() error {
 	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, logger)
+	}, queries, cfg.AdminSecret, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {
@@ -111,5 +151,25 @@ func run() error {
 	}
 
 	logger.Info("shutdown complete")
+	return nil
+}
+
+// runMigrations applies goose migrations from the embedded migration files.
+func runMigrations(dbURL string) error {
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		return fmt.Errorf("opening db for migrations: %w", err)
+	}
+	defer db.Close()
+
+	goose.SetBaseFS(nil)
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("setting goose dialect: %w", err)
+	}
+
+	if err := goose.Up(db, "internal/store/migrations"); err != nil {
+		return fmt.Errorf("applying migrations: %w", err)
+	}
+
 	return nil
 }

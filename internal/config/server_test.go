@@ -20,18 +20,36 @@ func TestLoadServer_Valid(t *testing.T) {
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 }
 
-func TestLoadServer_MissingAPIKeys(t *testing.T) {
+func TestLoadServer_MissingBothAuthMethods(t *testing.T) {
 	_, err := LoadServer()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "API_KEYS")
+	assert.Contains(t, err.Error(), "SUPABASE_DB_URL or API_KEYS")
 }
 
-func TestLoadServer_EmptyAPIKeys(t *testing.T) {
+func TestLoadServer_EmptyAPIKeysNoSupabase(t *testing.T) {
 	t.Setenv("API_KEYS", "  ,  ,  ")
 
 	_, err := LoadServer()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one key")
+	assert.Contains(t, err.Error(), "SUPABASE_DB_URL or API_KEYS")
+}
+
+func TestLoadServer_SupabaseRequiresAdminSecret(t *testing.T) {
+	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+
+	_, err := LoadServer()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ADMIN_SECRET")
+}
+
+func TestLoadServer_SupabaseWithAdminSecret(t *testing.T) {
+	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+	t.Setenv("ADMIN_SECRET", "my-secret")
+
+	cfg, err := LoadServer()
+	require.NoError(t, err)
+	assert.Equal(t, "postgresql://localhost/test", cfg.SupabaseDBURL)
+	assert.Equal(t, "my-secret", cfg.AdminSecret)
 }
 
 func TestLoadServer_CustomListenAddr(t *testing.T) {

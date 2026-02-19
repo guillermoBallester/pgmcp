@@ -8,25 +8,30 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/guillermoBallester/isthmus/internal/config"
+	"github.com/guillermoBallester/isthmus/internal/store"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	"github.com/mark3labs/mcp-go/server"
 )
 
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.
 type Server struct {
-	httpServer *http.Server
-	router     chi.Router
-	logger     *slog.Logger
+	httpServer  *http.Server
+	router      chi.Router
+	logger      *slog.Logger
+	queries     store.DBTX // nil when running in static-key mode
+	adminSecret string
 }
 
 // New creates a new Server wired with the given tunnel and MCP servers.
+// queries and adminSecret may be nil/"" when running in static-key mode (no Supabase).
 func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPServer,
-	httpCfg config.HTTPConfig, logger *slog.Logger) *Server {
+	httpCfg config.HTTPConfig, queries *store.Queries, adminSecret string, logger *slog.Logger) *Server {
 	s := &Server{
-		logger: logger,
+		logger:      logger,
+		adminSecret: adminSecret,
 	}
 
-	s.setupRoutes(tunnelSrv, mcpSrv)
+	s.setupRoutes(tunnelSrv, mcpSrv, queries)
 
 	s.httpServer = &http.Server{
 		Addr:              listenAddr,

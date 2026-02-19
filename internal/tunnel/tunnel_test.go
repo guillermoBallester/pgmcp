@@ -24,6 +24,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// newStaticAuth creates a simple in-memory authenticator for tests.
+func newStaticAuth(keys ...string) Authenticator {
+	return &staticTestAuth{keys: keys}
+}
+
+type staticTestAuth struct {
+	keys []string
+}
+
+func (a *staticTestAuth) Authenticate(_ context.Context, token string) (bool, error) {
+	for _, k := range a.keys {
+		if k == token {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // newTestLogger returns a logger that writes to testing.T.
 // Logging is silently dropped after the test finishes to avoid data races.
 func newTestLogger(t *testing.T) *slog.Logger {
@@ -137,7 +155,7 @@ func setupTunnel(t *testing.T, agentMCP *server.MCPServer, hbCfg tunnel.Heartbea
 	cloudMCP := server.NewMCPServer("test-cloud", "0.1.0",
 		server.WithToolCapabilities(true),
 	)
-	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(hbCfg), "0.1.0", logger)
+	tunnelSrv := NewTunnelServer(newStaticAuth(apiKey), testServerTunnelConfig(hbCfg), "0.1.0", logger)
 	proxy := NewProxy(tunnelSrv, cloudMCP, testServerTunnelConfig(hbCfg), logger)
 	proxy.Setup()
 
@@ -168,7 +186,7 @@ func TestTunnelEndToEnd(t *testing.T) {
 		server.WithToolCapabilities(true),
 	)
 	srvCfg := testServerTunnelConfig(testHeartbeatConfig())
-	tunnelSrv := NewTunnelServer([]string{apiKey}, srvCfg, "0.1.0", logger)
+	tunnelSrv := NewTunnelServer(newStaticAuth(apiKey), srvCfg, "0.1.0", logger)
 	proxy := NewProxy(tunnelSrv, cloudMCP, srvCfg, logger)
 	proxy.Setup()
 
@@ -294,7 +312,7 @@ func TestTunnelEndToEnd(t *testing.T) {
 func TestTunnelAuthRejected(t *testing.T) {
 	logger := newTestLogger(t)
 
-	tunnelSrv := NewTunnelServer([]string{"correct-key"}, testServerTunnelConfig(testHeartbeatConfig()), "0.1.0", logger)
+	tunnelSrv := NewTunnelServer(newStaticAuth("correct-key"), testServerTunnelConfig(testHeartbeatConfig()), "0.1.0", logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tunnel", tunnelSrv.HandleTunnel)
@@ -319,7 +337,7 @@ func TestTunnelAuthRejected(t *testing.T) {
 // when no agent is connected.
 func TestForwardCallNoAgent(t *testing.T) {
 	logger := newTestLogger(t)
-	tunnelSrv := NewTunnelServer([]string{"key"}, testServerTunnelConfig(testHeartbeatConfig()), "0.1.0", logger)
+	tunnelSrv := NewTunnelServer(newStaticAuth("key"), testServerTunnelConfig(testHeartbeatConfig()), "0.1.0", logger)
 
 	_, err := tunnelSrv.ForwardCall(context.Background(), "sess", json.RawMessage(`{}`))
 	require.ErrorIs(t, err, ErrNoAgent)
@@ -335,7 +353,7 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 		server.WithToolCapabilities(true),
 	)
 	srvCfg := testServerTunnelConfig(testHeartbeatConfig())
-	tunnelSrv := NewTunnelServer([]string{apiKey}, srvCfg, "0.1.0", logger)
+	tunnelSrv := NewTunnelServer(newStaticAuth(apiKey), srvCfg, "0.1.0", logger)
 	proxy := NewProxy(tunnelSrv, cloudMCP, srvCfg, logger)
 	proxy.Setup()
 
@@ -501,7 +519,7 @@ func setupTunnelWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg 
 		server.WithToolCapabilities(true),
 	)
 	srvCfg := testServerTunnelConfig(hbCfg)
-	tunnelSrv := NewTunnelServer([]string{apiKey}, srvCfg, "0.1.0", logger)
+	tunnelSrv := NewTunnelServer(newStaticAuth(apiKey), srvCfg, "0.1.0", logger)
 	proxy := NewProxy(tunnelSrv, cloudMCP, srvCfg, logger)
 	proxy.Setup()
 
@@ -600,7 +618,7 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
 
-	tunnelSrv := NewTunnelServer([]string{apiKey}, testServerTunnelConfig(tunnel.HeartbeatConfig{
+	tunnelSrv := NewTunnelServer(newStaticAuth(apiKey), testServerTunnelConfig(tunnel.HeartbeatConfig{
 		Interval:      50 * time.Millisecond,
 		Timeout:       50 * time.Millisecond,
 		MissThreshold: 2,
@@ -950,7 +968,7 @@ func TestHandshakeTimeout(t *testing.T) {
 	serverCfg := testServerTunnelConfig(testHeartbeatConfig())
 	handshakeTimeout := serverCfg.HandshakeTimeout
 
-	tunnelSrv := NewTunnelServer([]string{apiKey}, serverCfg, "0.1.0", logger)
+	tunnelSrv := NewTunnelServer(newStaticAuth(apiKey), serverCfg, "0.1.0", logger)
 
 	handshakeFailed := make(chan struct{})
 	originalOnConnect := tunnelSrv.onConnect

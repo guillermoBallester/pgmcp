@@ -78,6 +78,10 @@ func run() error {
 		authenticator = supaAuth
 
 		logger.Info("using supabase authenticator")
+
+		if cfg.ClerkWebhookSecret != "" {
+			logger.Info("clerk webhook handler enabled")
+		}
 	} else {
 		authenticator = auth.NewStaticAuthenticator(cfg.APIKeys)
 		logger.Info("using static api key authenticator",
@@ -110,11 +114,17 @@ func run() error {
 	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, tunnelCfg, logger)
 	proxy.Setup()
 
+	// Clerk webhook handler (optional).
+	var webhookHandler *server.WebhookHandler
+	if pool != nil && cfg.ClerkWebhookSecret != "" {
+		webhookHandler = server.NewWebhookHandler(pool, queries, cfg.ClerkWebhookSecret, logger)
+	}
+
 	// HTTP server with chi routing and middleware.
 	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, queries, cfg.AdminSecret, cfg.CORSOrigin, logger)
+	}, queries, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {

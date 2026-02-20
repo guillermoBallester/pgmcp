@@ -15,21 +15,24 @@ import (
 
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.
 type Server struct {
-	httpServer  *http.Server
-	router      chi.Router
-	logger      *slog.Logger
-	adminSecret string
-	corsOrigin  string
+	httpServer     *http.Server
+	router         chi.Router
+	logger         *slog.Logger
+	adminSecret    string
+	corsOrigin     string
+	webhookHandler *WebhookHandler
 }
 
 // New creates a new Server wired with the given tunnel and MCP servers.
-// queries and adminSecret may be nil/"" when running in static-key mode (no Supabase).
+// queries, adminSecret, and webhookHandler may be nil/"" when running in static-key mode.
 func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPServer,
-	httpCfg config.HTTPConfig, queries *store.Queries, adminSecret, corsOrigin string, logger *slog.Logger) *Server {
+	httpCfg config.HTTPConfig, queries *store.Queries, adminSecret, corsOrigin string,
+	webhookHandler *WebhookHandler, logger *slog.Logger) *Server {
 	s := &Server{
-		logger:      logger,
-		adminSecret: adminSecret,
-		corsOrigin:  corsOrigin,
+		logger:         logger,
+		adminSecret:    adminSecret,
+		corsOrigin:     corsOrigin,
+		webhookHandler: webhookHandler,
 	}
 
 	s.setupRoutes(tunnelSrv, mcpSrv, queries)

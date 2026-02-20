@@ -5,12 +5,14 @@ go 1.26.0
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/cors v1.2.2
 	github.com/hashicorp/yamux v0.1.2
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/pganalyze/pg_query_go/v6 v6.2.2
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/stretchr/testify v1.11.1
+	github.com/svix/svix-webhooks v1.85.0
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	golang.org/x/sync v0.19.0
@@ -35,7 +37,6 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/ebitengine/purego v0.8.4 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/go-chi/cors v1.2.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect

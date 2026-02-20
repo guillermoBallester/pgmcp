@@ -16,6 +16,7 @@ type ServerConfig struct {
 	SupabaseDBURL          string
 	AdminSecret            string
 	CORSOrigin             string
+	ClerkWebhookSecret     string
 	LogLevel               slog.Level
 	HeartbeatInterval      time.Duration
 	HeartbeatTimeout       time.Duration
@@ -54,6 +55,7 @@ func LoadServer() (*ServerConfig, error) {
 	cfg.SupabaseDBURL = os.Getenv("SUPABASE_DB_URL")
 	cfg.AdminSecret = os.Getenv("ADMIN_SECRET")
 	cfg.CORSOrigin = os.Getenv("CORS_ORIGIN")
+	cfg.ClerkWebhookSecret = os.Getenv("CLERK_WEBHOOK_SECRET")
 
 	keysRaw := os.Getenv("API_KEYS")
 	if keysRaw != "" {

@@ -23,9 +23,14 @@ services:
         VERSION: ${VERSION:-dev}
     ports:
       - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       LISTEN_ADDR: ":8080"
-      API_KEYS: "dev-key"
+      SUPABASE_DB_URL: postgres://isthmus:isthmus@postgres:5432/isthmus?sslmode=disable
+      ADMIN_SECRET: ${ADMIN_SECRET:-dev-admin-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       LOG_LEVEL: "debug"
     restart: unless-stopped
     healthcheck:
@@ -34,27 +39,6 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
-
-  agent:
-    build:
-      context: .
-      dockerfile: Dockerfile.agent
-      args:
-        VERSION: ${VERSION:-dev}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      server:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://isthmus:isthmus@postgres:5432/isthmus?sslmode=disable
-      TUNNEL_URL: ws://server:8080/tunnel
-      API_KEY: "dev-key"
-      READ_ONLY: "true"
-      MAX_ROWS: "100"
-      QUERY_TIMEOUT: "10s"
-      LOG_LEVEL: "debug"
-    restart: unless-stopped
 
 volumes:
   pgdata:

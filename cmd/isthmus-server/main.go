@@ -54,43 +54,22 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// Build authenticator based on configuration.
-	var (
-		authenticator auth.Authenticator
-		queries       *store.Queries
-		pool          *pgxpool.Pool
-	)
-
-	if cfg.SupabaseDBURL != "" {
-		pool, err = pgxpool.New(ctx, cfg.SupabaseDBURL)
-		if err != nil {
-			return fmt.Errorf("connecting to supabase: %w", err)
-		}
-		defer pool.Close()
-
-		logger.Info("supabase database connected")
-
-		// Run goose migrations.
-		if err := runMigrations(cfg.SupabaseDBURL); err != nil {
-			return fmt.Errorf("running migrations: %w", err)
-		}
-		logger.Info("database migrations applied")
-
-		queries = store.New(pool)
-		supaAuth := auth.NewSupabaseAuthenticator(queries, logger)
-		authenticator = supaAuth
-
-		logger.Info("using supabase authenticator (multi-tenant)")
-
-		if cfg.ClerkWebhookSecret != "" {
-			logger.Info("clerk webhook handler enabled")
-		}
-	} else {
-		authenticator = auth.NewStaticAuthenticator(cfg.APIKeys)
-		logger.Info("using static api key authenticator",
-			slog.Int("key_count", len(cfg.APIKeys)),
-		)
+	// Connect to Supabase.
+	pool, err := pgxpool.New(ctx, cfg.SupabaseDBURL)
+	if err != nil {
+		return fmt.Errorf("connecting to supabase: %w", err)
 	}
+	defer pool.Close()
+	logger.Info("supabase database connected")
+
+	// Run goose migrations.
+	if err := runMigrations(cfg.SupabaseDBURL); err != nil {
+		return fmt.Errorf("running migrations: %w", err)
+	}
+	logger.Info("database migrations applied")
+
+	queries := store.New(pool)
+	authenticator := auth.NewSupabaseAuthenticator(queries, logger)
 
 	// Tunnel config.
 	tunnelCfg := tunnel.ServerTunnelConfig{
@@ -107,17 +86,15 @@ func run() error {
 	}
 
 	// TunnelRegistry — manages multiple simultaneous agent tunnels.
-	// Each agent connects for a specific database and gets its own
-	// MCPServer + Proxy. In static-key mode, uses StaticDatabaseID.
 	registry := itunnel.NewTunnelRegistry(authenticator, tunnelCfg, version, logger)
 
 	// Direct connection service — manages direct database connections (no agent needed).
-	// Only enabled when Supabase + encryption key are configured.
+	// Only enabled when encryption key is configured.
 	var (
 		enc       *crypto.AESEncryptor
 		directSvc *service.DirectConnectionService
 	)
-	if queries != nil && cfg.EncryptionKey != "" {
+	if cfg.EncryptionKey != "" {
 		var encErr error
 		enc, encErr = crypto.NewAESEncryptor(cfg.EncryptionKey)
 		if encErr != nil {
@@ -133,20 +110,14 @@ func run() error {
 		logger.Info("direct connection service enabled")
 	}
 
-	// Cloud MCPServer — used as fallback for static-key mode only.
-	// In multi-tenant mode, per-database MCPServers are created by the registry.
-	mcpSrv := mcpserver.NewMCPServer("isthmus-cloud", version,
-		mcpserver.WithToolCapabilities(true),
-	)
-
 	// Clerk webhook handler (optional).
 	var webhookHandler *server.WebhookHandler
-	if pool != nil && cfg.ClerkWebhookSecret != "" {
+	if cfg.ClerkWebhookSecret != "" {
 		webhookHandler = server.NewWebhookHandler(pool, queries, cfg.ClerkWebhookSecret, logger)
 	}
 
 	// HTTP server with chi routing and middleware.
-	srv := server.New(cfg.ListenAddr, registry, directSvc, mcpSrv, authenticator, config.HTTPConfig{
+	srv := server.New(cfg.ListenAddr, registry, directSvc, authenticator, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 	}, queries, enc, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)

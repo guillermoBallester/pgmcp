@@ -23,35 +23,6 @@ type Authenticator interface {
 	Authenticate(ctx context.Context, token string) (*AuthResult, error)
 }
 
-// StaticAuthenticator validates tokens against an in-memory set of keys.
-// Used for local development when no Supabase connection is configured.
-type StaticAuthenticator struct {
-	keys map[string]bool
-}
-
-// NewStaticAuthenticator creates an authenticator from a list of plaintext keys.
-func NewStaticAuthenticator(keys []string) *StaticAuthenticator {
-	keySet := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		keySet[k] = true
-	}
-	return &StaticAuthenticator{keys: keySet}
-}
-
-// StaticDatabaseID is a sentinel UUID used for the single tunnel in static-key mode.
-var StaticDatabaseID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
-
-// Authenticate checks if the token is in the static key set.
-// Returns a sentinel AuthResult with StaticDatabaseID for backwards compat.
-func (a *StaticAuthenticator) Authenticate(_ context.Context, token string) (*AuthResult, error) {
-	if !a.keys[token] {
-		return nil, nil
-	}
-	return &AuthResult{
-		DatabaseIDs: []uuid.UUID{StaticDatabaseID},
-	}, nil
-}
-
 // SupabaseAuthenticator validates tokens by hashing them and looking up the
 // hash in the api_keys table via sqlc-generated queries.
 type SupabaseAuthenticator struct {

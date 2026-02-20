@@ -5,14 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
 // ServerConfig holds configuration for the cloud server.
 type ServerConfig struct {
 	ListenAddr             string
-	APIKeys                []string
 	SupabaseDBURL          string
 	AdminSecret            string
 	CORSOrigin             string
@@ -58,23 +56,12 @@ func LoadServer() (*ServerConfig, error) {
 	cfg.CORSOrigin = os.Getenv("CORS_ORIGIN")
 	cfg.ClerkWebhookSecret = os.Getenv("CLERK_WEBHOOK_SECRET")
 	cfg.EncryptionKey = os.Getenv("ENCRYPTION_KEY")
-	keysRaw := os.Getenv("API_KEYS")
-	if keysRaw != "" {
-		for _, k := range strings.Split(keysRaw, ",") {
-			k = strings.TrimSpace(k)
-			if k != "" {
-				cfg.APIKeys = append(cfg.APIKeys, k)
-			}
-		}
-	}
 
-	// At least one auth method must be configured.
-	if cfg.SupabaseDBURL == "" && len(cfg.APIKeys) == 0 {
-		return nil, fmt.Errorf("either SUPABASE_DB_URL or API_KEYS must be set")
+	if cfg.SupabaseDBURL == "" {
+		return nil, fmt.Errorf("SUPABASE_DB_URL is required")
 	}
-
-	if cfg.SupabaseDBURL != "" && cfg.AdminSecret == "" {
-		return nil, fmt.Errorf("ADMIN_SECRET is required when SUPABASE_DB_URL is set")
+	if cfg.AdminSecret == "" {
+		return nil, fmt.Errorf("ADMIN_SECRET is required")
 	}
 
 	if v := os.Getenv("LOG_LEVEL"); v != "" {

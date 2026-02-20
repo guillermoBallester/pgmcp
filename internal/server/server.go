@@ -13,7 +13,6 @@ import (
 	"github.com/guillermoBallester/isthmus/internal/config"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	"github.com/guillermoBallester/isthmus/pkg/core/service"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.
@@ -26,12 +25,11 @@ type Server struct {
 	webhookHandler *WebhookHandler
 }
 
-// New creates a new Server wired with the given tunnel registry, direct connection service, and MCP server.
-// For multi-tenant mode (Supabase), registry handles per-database tunnels, directSvc handles
-// direct connections, and authenticator is used for client-facing MCP auth routing.
-// For static-key mode, mcpSrv is the single global MCPServer.
+// New creates a new Server wired with the given tunnel registry and direct connection service.
+// Registry handles per-database agent tunnels, directSvc handles direct connections,
+// and authenticator is used for client-facing MCP auth routing.
 func New(listenAddr string, registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService,
-	mcpSrv *server.MCPServer, authenticator auth.Authenticator,
+	authenticator auth.Authenticator,
 	httpCfg config.HTTPConfig, queries *store.Queries, enc *crypto.AESEncryptor,
 	adminSecret, corsOrigin string,
 	webhookHandler *WebhookHandler, logger *slog.Logger) *Server {
@@ -42,7 +40,7 @@ func New(listenAddr string, registry *itunnel.TunnelRegistry, directSvc *service
 		webhookHandler: webhookHandler,
 	}
 
-	s.setupRoutes(registry, directSvc, mcpSrv, authenticator, queries, enc)
+	s.setupRoutes(registry, directSvc, authenticator, queries, enc)
 
 	s.httpServer = &http.Server{
 		Addr:              listenAddr,

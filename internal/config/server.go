@@ -17,8 +17,6 @@ type ServerConfig struct {
 	AdminSecret            string
 	CORSOrigin             string
 	ClerkWebhookSecret     string
-	ClerkSecretKey         string
-	EncryptionKey          string
 	LogLevel               slog.Level
 	HeartbeatInterval      time.Duration
 	HeartbeatTimeout       time.Duration
@@ -58,9 +56,6 @@ func LoadServer() (*ServerConfig, error) {
 	cfg.AdminSecret = os.Getenv("ADMIN_SECRET")
 	cfg.CORSOrigin = os.Getenv("CORS_ORIGIN")
 	cfg.ClerkWebhookSecret = os.Getenv("CLERK_WEBHOOK_SECRET")
-	cfg.ClerkSecretKey = os.Getenv("CLERK_SECRET_KEY")
-	cfg.EncryptionKey = os.Getenv("ENCRYPTION_KEY")
-
 	keysRaw := os.Getenv("API_KEYS")
 	if keysRaw != "" {
 		for _, k := range strings.Split(keysRaw, ",") {
@@ -76,8 +71,8 @@ func LoadServer() (*ServerConfig, error) {
 		return nil, fmt.Errorf("either SUPABASE_DB_URL or API_KEYS must be set")
 	}
 
-	if cfg.SupabaseDBURL != "" && cfg.AdminSecret == "" && cfg.ClerkSecretKey == "" {
-		return nil, fmt.Errorf("ADMIN_SECRET or CLERK_SECRET_KEY is required when SUPABASE_DB_URL is set")
+	if cfg.SupabaseDBURL != "" && cfg.AdminSecret == "" {
+		return nil, fmt.Errorf("ADMIN_SECRET is required when SUPABASE_DB_URL is set")
 	}
 
 	if v := os.Getenv("LOG_LEVEL"); v != "" {

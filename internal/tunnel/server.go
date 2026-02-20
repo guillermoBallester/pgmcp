@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 	"github.com/hashicorp/yamux"
 )
@@ -19,16 +20,11 @@ import (
 // ErrNoAgent is returned when a call is forwarded but no agent is connected.
 var ErrNoAgent = errors.New("no agent connected")
 
-// Authenticator validates a Bearer token from an incoming request.
-type Authenticator interface {
-	Authenticate(ctx context.Context, token string) (bool, error)
-}
-
 // TunnelServer manages the WebSocket connection to the agent and forwards
 // MCP calls through the yamux tunnel.
 type TunnelServer struct {
 	logger        *slog.Logger
-	auth          Authenticator
+	auth          auth.Authenticator
 	cfg           tunnel.ServerTunnelConfig
 	serverVersion string
 
@@ -40,10 +36,10 @@ type TunnelServer struct {
 }
 
 // NewTunnelServer creates a new tunnel server with the given authenticator, tunnel config, and server version.
-func NewTunnelServer(auth Authenticator, cfg tunnel.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
+func NewTunnelServer(authenticator auth.Authenticator, cfg tunnel.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelServer {
 	return &TunnelServer{
 		logger:        logger,
-		auth:          auth,
+		auth:          authenticator,
 		cfg:           cfg,
 		serverVersion: serverVersion,
 	}
@@ -68,7 +64,7 @@ func (s *TunnelServer) Connected() bool {
 
 // HandleTunnel is the HTTP handler for the /tunnel WebSocket endpoint.
 func (s *TunnelServer) HandleTunnel(w http.ResponseWriter, r *http.Request) {
-	if !s.authenticate(r) {
+	if s.authenticate(r) == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -275,16 +271,16 @@ func (s *TunnelServer) performHandshake(session *yamux.Session) (*tunnel.Handsha
 	return ack, nil
 }
 
-func (s *TunnelServer) authenticate(r *http.Request) bool {
+func (s *TunnelServer) authenticate(r *http.Request) *auth.AuthResult {
 	header := r.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
-		return false
+		return nil
 	}
 	token := strings.TrimPrefix(header, "Bearer ")
-	ok, err := s.auth.Authenticate(r.Context(), token)
+	result, err := s.auth.Authenticate(r.Context(), token)
 	if err != nil {
 		s.logger.Error("authentication error", slog.String("error", err.Error()))
-		return false
+		return nil
 	}
-	return ok
+	return result
 }

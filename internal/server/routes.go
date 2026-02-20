@@ -1,15 +1,18 @@
 package server
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/store"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-func (s *Server) setupRoutes(tunnelSrv *itunnel.TunnelServer, mcpSrv *mcpserver.MCPServer, queries *store.Queries) {
+func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, mcpSrv *mcpserver.MCPServer, authenticator auth.Authenticator, queries *store.Queries) {
 	r := chi.NewRouter()
 
 	// Global middleware stack
@@ -18,15 +21,21 @@ func (s *Server) setupRoutes(tunnelSrv *itunnel.TunnelServer, mcpSrv *mcpserver.
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
 
-	// MCP streamable HTTP endpoint
-	r.Handle("/mcp", mcpserver.NewStreamableHTTPServer(mcpSrv))
+	// MCP endpoint — authenticated, routes to per-database MCPServer via registry.
+	// In multi-tenant mode (queries != nil), clients must provide an API key.
+	// In static-key mode, fall back to the single global MCPServer.
+	if queries != nil {
+		r.HandleFunc("/mcp", s.handleMCP(registry, authenticator))
+	} else {
+		r.Handle("/mcp", mcpserver.NewStreamableHTTPServer(mcpSrv))
+	}
 
 	// Agent tunnel WebSocket endpoint
-	r.HandleFunc("/tunnel", tunnelSrv.HandleTunnel)
+	r.HandleFunc("/tunnel", registry.HandleTunnel)
 
 	// Health probes
 	r.Get("/health", s.handleHealth())
-	r.Get("/ready", s.handleReady(tunnelSrv))
+	r.Get("/ready", s.handleRegistryReady(registry))
 
 	// Clerk webhook — Svix-verified, no admin auth needed.
 	if s.webhookHandler != nil {
@@ -49,42 +58,25 @@ func (s *Server) setupRoutes(tunnelSrv *itunnel.TunnelServer, mcpSrv *mcpserver.
 			api.Post("/keys", s.handleCreateKey(queries))
 			api.Get("/keys", s.handleListKeys(queries))
 			api.Delete("/keys/{id}", s.handleDeleteKey(queries))
-		})
-	}
-
-	// Control Plane API — Clerk JWT authenticated, for the dashboard.
-	if queries != nil && s.clerkEnabled {
-		r.Route("/api/v1", func(api chi.Router) {
-			if s.corsOrigin != "" {
-				api.Use(cors.Handler(cors.Options{
-					AllowedOrigins:   []string{s.corsOrigin},
-					AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
-					AllowedHeaders:   []string{"Authorization", "Content-Type"},
-					AllowCredentials: true,
-					MaxAge:           300,
-				}))
-			}
-
-			api.Use(s.clerkJWTAuth(queries))
-
-			// Workspace listing (no workspace_id needed).
-			api.Get("/workspaces", s.handleListWorkspaces(queries))
-
-			api.Route("/workspaces/{workspace_id}", func(ws chi.Router) {
-				ws.Use(s.workspaceMemberAuth(queries))
-
-				// Database management
-				ws.Get("/databases", s.handleListDatabases(queries))
-				ws.Post("/databases", s.handleCreateDatabase(queries, s.encryptor))
-				ws.Delete("/databases/{db_id}", s.handleDeleteDatabase(queries))
-
-				// API key management
-				ws.Get("/api-keys", s.handleCPListKeys(queries))
-				ws.Post("/api-keys", s.handleCPCreateKey(queries))
-				ws.Delete("/api-keys/{key_id}", s.handleCPDeleteKey(queries))
-			})
+			api.Post("/keys/{id}/databases", s.handleGrantKeyDatabase(queries))
+			api.Delete("/keys/{id}/databases/{db_id}", s.handleRevokeKeyDatabase(queries))
+			api.Post("/databases", s.handleCreateDatabase(queries))
+			api.Get("/databases", s.handleListDatabases(queries))
+			api.Delete("/databases/{id}", s.handleDeleteDatabase(queries))
 		})
 	}
 
 	s.router = r
+}
+
+// handleRegistryReady returns 200 if at least one tunnel is connected, 503 otherwise.
+func (s *Server) handleRegistryReady(registry *itunnel.TunnelRegistry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !registry.AnyConnected() {
+			http.Error(w, "no agents connected", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}
 }

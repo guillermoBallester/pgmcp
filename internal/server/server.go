@@ -7,8 +7,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
-	"github.com/guillermoBallester/isthmus/internal/crypto"
 	"github.com/guillermoBallester/isthmus/internal/store"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	"github.com/mark3labs/mcp-go/server"
@@ -22,26 +22,24 @@ type Server struct {
 	adminSecret    string
 	corsOrigin     string
 	webhookHandler *WebhookHandler
-	encryptor      *crypto.Encryptor
-	clerkEnabled   bool
 }
 
-// New creates a new Server wired with the given tunnel and MCP servers.
-// Optional params may be nil/""/false when running in static-key mode.
-func New(listenAddr string, tunnelSrv *itunnel.TunnelServer, mcpSrv *server.MCPServer,
+// New creates a new Server wired with the given tunnel registry and MCP server.
+// For multi-tenant mode (Supabase), registry handles per-database tunnels and
+// mcpSrv/authenticator are used for client-facing MCP auth routing.
+// For static-key mode, mcpSrv is the single global MCPServer.
+func New(listenAddr string, registry *itunnel.TunnelRegistry, mcpSrv *server.MCPServer,
+	authenticator auth.Authenticator,
 	httpCfg config.HTTPConfig, queries *store.Queries, adminSecret, corsOrigin string,
-	webhookHandler *WebhookHandler, encryptor *crypto.Encryptor, clerkEnabled bool,
-	logger *slog.Logger) *Server {
+	webhookHandler *WebhookHandler, logger *slog.Logger) *Server {
 	s := &Server{
 		logger:         logger,
 		adminSecret:    adminSecret,
 		corsOrigin:     corsOrigin,
 		webhookHandler: webhookHandler,
-		encryptor:      encryptor,
-		clerkEnabled:   clerkEnabled,
 	}
 
-	s.setupRoutes(tunnelSrv, mcpSrv, queries)
+	s.setupRoutes(registry, mcpSrv, authenticator, queries)
 
 	s.httpServer = &http.Server{
 		Addr:              listenAddr,

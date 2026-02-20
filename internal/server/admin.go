@@ -9,10 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
-	"github.com/guillermoBallester/isthmus/internal/crypto"
-	"github.com/guillermoBallester/isthmus/internal/direct"
+	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -230,7 +230,7 @@ type databaseResponse struct {
 
 // handleCreateDatabase creates a new database record.
 // For direct connections, encrypts and stores the connection URL.
-func (s *Server) handleCreateDatabase(queries *store.Queries, encryptionKey string) http.HandlerFunc {
+func (s *Server) handleCreateDatabase(queries *store.Queries, enc *crypto.AESEncryptor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createDatabaseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -258,12 +258,12 @@ func (s *Server) handleCreateDatabase(queries *store.Queries, encryptionKey stri
 				http.Error(w, `{"error":"connection_url is required for direct connections"}`, http.StatusBadRequest)
 				return
 			}
-			if encryptionKey == "" {
+			if enc == nil {
 				http.Error(w, `{"error":"direct connections not enabled (ENCRYPTION_KEY not set)"}`, http.StatusBadRequest)
 				return
 			}
 
-			encrypted, err := crypto.Encrypt([]byte(req.ConnectionURL), encryptionKey)
+			encrypted, err := enc.Encrypt([]byte(req.ConnectionURL))
 			if err != nil {
 				s.logger.Error("failed to encrypt connection URL", slog.String("error", err.Error()))
 				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
@@ -360,7 +360,7 @@ func (s *Server) handleListDatabases(queries *store.Queries) http.HandlerFunc {
 }
 
 // handleDeleteDatabase deletes a database record and cleans up any cached direct connection.
-func (s *Server) handleDeleteDatabase(queries *store.Queries, directMgr *direct.Manager) http.HandlerFunc {
+func (s *Server) handleDeleteDatabase(queries *store.Queries, directSvc *service.DirectConnectionService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		wsIDStr := r.URL.Query().Get("workspace_id")
@@ -387,9 +387,9 @@ func (s *Server) handleDeleteDatabase(queries *store.Queries, directMgr *direct.
 		}
 
 		// Clean up cached direct connection if any.
-		if directMgr != nil {
+		if directSvc != nil {
 			if dbUUID, err := uuid.Parse(idStr); err == nil {
-				directMgr.Remove(dbUUID)
+				directSvc.Remove(dbUUID)
 			}
 		}
 

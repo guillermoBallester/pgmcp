@@ -6,14 +6,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
-	"github.com/guillermoBallester/isthmus/internal/direct"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
+	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directMgr *direct.Manager, mcpSrv *mcpserver.MCPServer, authenticator auth.Authenticator, queries *store.Queries, encryptionKey string) {
+func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, mcpSrv *mcpserver.MCPServer, authenticator auth.Authenticator, queries *store.Queries, enc *crypto.AESEncryptor) {
 	r := chi.NewRouter()
 
 	// Global middleware stack
@@ -26,7 +27,7 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directMgr *direct
 	// In multi-tenant mode (queries != nil), clients must provide an API key.
 	// In static-key mode, fall back to the single global MCPServer.
 	if queries != nil {
-		r.HandleFunc("/mcp", s.handleMCP(registry, directMgr, authenticator))
+		r.HandleFunc("/mcp", s.handleMCP(registry, directSvc, authenticator))
 	} else {
 		r.Handle("/mcp", mcpserver.NewStreamableHTTPServer(mcpSrv))
 	}
@@ -61,9 +62,9 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directMgr *direct
 			api.Delete("/keys/{id}", s.handleDeleteKey(queries))
 			api.Post("/keys/{id}/databases", s.handleGrantKeyDatabase(queries))
 			api.Delete("/keys/{id}/databases/{db_id}", s.handleRevokeKeyDatabase(queries))
-			api.Post("/databases", s.handleCreateDatabase(queries, encryptionKey))
+			api.Post("/databases", s.handleCreateDatabase(queries, enc))
 			api.Get("/databases", s.handleListDatabases(queries))
-			api.Delete("/databases/{id}", s.handleDeleteDatabase(queries, directMgr))
+			api.Delete("/databases/{id}", s.handleDeleteDatabase(queries, directSvc))
 		})
 	}
 

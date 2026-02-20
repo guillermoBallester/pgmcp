@@ -7,11 +7,12 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
-	"github.com/guillermoBallester/isthmus/internal/direct"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
+	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -25,13 +26,14 @@ type Server struct {
 	webhookHandler *WebhookHandler
 }
 
-// New creates a new Server wired with the given tunnel registry, direct manager, and MCP server.
-// For multi-tenant mode (Supabase), registry handles per-database tunnels, directMgr handles
+// New creates a new Server wired with the given tunnel registry, direct connection service, and MCP server.
+// For multi-tenant mode (Supabase), registry handles per-database tunnels, directSvc handles
 // direct connections, and authenticator is used for client-facing MCP auth routing.
 // For static-key mode, mcpSrv is the single global MCPServer.
-func New(listenAddr string, registry *itunnel.TunnelRegistry, directMgr *direct.Manager,
+func New(listenAddr string, registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService,
 	mcpSrv *server.MCPServer, authenticator auth.Authenticator,
-	httpCfg config.HTTPConfig, queries *store.Queries, adminSecret, corsOrigin, encryptionKey string,
+	httpCfg config.HTTPConfig, queries *store.Queries, enc *crypto.AESEncryptor,
+	adminSecret, corsOrigin string,
 	webhookHandler *WebhookHandler, logger *slog.Logger) *Server {
 	s := &Server{
 		logger:         logger,
@@ -40,7 +42,7 @@ func New(listenAddr string, registry *itunnel.TunnelRegistry, directMgr *direct.
 		webhookHandler: webhookHandler,
 	}
 
-	s.setupRoutes(registry, directMgr, mcpSrv, authenticator, queries, encryptionKey)
+	s.setupRoutes(registry, directSvc, mcpSrv, authenticator, queries, enc)
 
 	s.httpServer = &http.Server{
 		Addr:              listenAddr,

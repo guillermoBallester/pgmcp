@@ -52,5 +52,39 @@ func (s *Server) setupRoutes(tunnelSrv *itunnel.TunnelServer, mcpSrv *mcpserver.
 		})
 	}
 
+	// Control Plane API — Clerk JWT authenticated, for the dashboard.
+	if queries != nil && s.clerkEnabled {
+		r.Route("/api/v1", func(api chi.Router) {
+			if s.corsOrigin != "" {
+				api.Use(cors.Handler(cors.Options{
+					AllowedOrigins:   []string{s.corsOrigin},
+					AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
+					AllowedHeaders:   []string{"Authorization", "Content-Type"},
+					AllowCredentials: true,
+					MaxAge:           300,
+				}))
+			}
+
+			api.Use(s.clerkJWTAuth(queries))
+
+			// Workspace listing (no workspace_id needed).
+			api.Get("/workspaces", s.handleListWorkspaces(queries))
+
+			api.Route("/workspaces/{workspace_id}", func(ws chi.Router) {
+				ws.Use(s.workspaceMemberAuth(queries))
+
+				// Database management
+				ws.Get("/databases", s.handleListDatabases(queries))
+				ws.Post("/databases", s.handleCreateDatabase(queries, s.encryptor))
+				ws.Delete("/databases/{db_id}", s.handleDeleteDatabase(queries))
+
+				// API key management
+				ws.Get("/api-keys", s.handleCPListKeys(queries))
+				ws.Post("/api-keys", s.handleCPCreateKey(queries))
+				ws.Delete("/api-keys/{key_id}", s.handleCPDeleteKey(queries))
+			})
+		})
+	}
+
 	s.router = r
 }

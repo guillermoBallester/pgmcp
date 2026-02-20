@@ -54,6 +54,51 @@ func (q *Queries) CreateDatabase(ctx context.Context, arg CreateDatabaseParams) 
 	return i, err
 }
 
+const createDatabaseWithURL = `-- name: CreateDatabaseWithURL :one
+INSERT INTO databases (workspace_id, name, connection_type, encrypted_connection_url, status)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, workspace_id, name, connection_type, status, created_at, updated_at
+`
+
+type CreateDatabaseWithURLParams struct {
+	WorkspaceID            pgtype.UUID `json:"workspace_id"`
+	Name                   string      `json:"name"`
+	ConnectionType         string      `json:"connection_type"`
+	EncryptedConnectionUrl []byte      `json:"encrypted_connection_url"`
+	Status                 string      `json:"status"`
+}
+
+type CreateDatabaseWithURLRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	Name           string             `json:"name"`
+	ConnectionType string             `json:"connection_type"`
+	Status         string             `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateDatabaseWithURL(ctx context.Context, arg CreateDatabaseWithURLParams) (CreateDatabaseWithURLRow, error) {
+	row := q.db.QueryRow(ctx, createDatabaseWithURL,
+		arg.WorkspaceID,
+		arg.Name,
+		arg.ConnectionType,
+		arg.EncryptedConnectionUrl,
+		arg.Status,
+	)
+	var i CreateDatabaseWithURLRow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.ConnectionType,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deleteDatabase = `-- name: DeleteDatabase :exec
 DELETE FROM databases WHERE id = $1 AND workspace_id = $2
 `

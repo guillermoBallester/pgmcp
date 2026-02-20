@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	clerklib "github.com/clerk/clerk-sdk-go/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
+	"github.com/guillermoBallester/isthmus/internal/crypto"
 	"github.com/guillermoBallester/isthmus/internal/server"
 	"github.com/guillermoBallester/isthmus/internal/store"
 	"github.com/guillermoBallester/isthmus/internal/store/migrations"
@@ -120,11 +122,29 @@ func run() error {
 		webhookHandler = server.NewWebhookHandler(pool, queries, cfg.ClerkWebhookSecret, logger)
 	}
 
+	// Encryption for database connection URLs (optional).
+	var encryptor *crypto.Encryptor
+	if cfg.EncryptionKey != "" {
+		encryptor, err = crypto.NewEncryptor(cfg.EncryptionKey)
+		if err != nil {
+			return fmt.Errorf("initializing encryptor: %w", err)
+		}
+		logger.Info("database connection URL encryption enabled")
+	}
+
+	// Clerk JWT authentication for control plane (optional).
+	clerkEnabled := false
+	if cfg.ClerkSecretKey != "" {
+		clerklib.SetKey(cfg.ClerkSecretKey)
+		clerkEnabled = true
+		logger.Info("clerk JWT authentication enabled for control plane")
+	}
+
 	// HTTP server with chi routing and middleware.
 	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, queries, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)
+	}, queries, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, encryptor, clerkEnabled, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {

@@ -17,7 +17,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/agent"
-	"github.com/guillermoBallester/isthmus/internal/auth"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/protocol"
 	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -30,7 +30,7 @@ import (
 var testDatabaseID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 // newStaticAuth creates a simple in-memory authenticator for tests.
-func newStaticAuth(keys ...string) auth.Authenticator {
+func newStaticAuth(keys ...string) port.Authenticator {
 	return &staticTestAuth{keys: keys}
 }
 
@@ -38,10 +38,10 @@ type staticTestAuth struct {
 	keys []string
 }
 
-func (a *staticTestAuth) Authenticate(_ context.Context, token string) (*auth.AuthResult, error) {
+func (a *staticTestAuth) Authenticate(_ context.Context, token string) (*port.AuthResult, error) {
 	for _, k := range a.keys {
 		if k == token {
-			return &auth.AuthResult{
+			return &port.AuthResult{
 				DatabaseIDs: []uuid.UUID{testDatabaseID},
 			}, nil
 		}

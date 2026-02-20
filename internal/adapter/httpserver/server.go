@@ -7,10 +7,9 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
-	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 )
@@ -29,8 +28,8 @@ type Server struct {
 // Registry handles per-database agent tunnels, directSvc handles direct connections,
 // and authenticator is used for client-facing MCP auth routing.
 func New(listenAddr string, registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService,
-	authenticator auth.Authenticator,
-	httpCfg config.HTTPConfig, queries *store.Queries, enc *crypto.AESEncryptor,
+	authenticator port.Authenticator,
+	httpCfg config.HTTPConfig, queries *store.Queries, enc port.Encryptor,
 	adminSecret, corsOrigin string,
 	webhookHandler *WebhookHandler, logger *slog.Logger) *Server {
 	s := &Server{

@@ -6,33 +6,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 )
 
-// AuthResult contains metadata from a successful authentication.
-// A nil result with nil error means the token was not found (invalid key).
-type AuthResult struct {
-	KeyID       uuid.UUID
-	WorkspaceID uuid.UUID
-	DatabaseIDs []uuid.UUID // databases this key has access to
-}
-
-// Authenticator validates a Bearer token from an incoming request.
-type Authenticator interface {
-	// Authenticate validates the token and returns metadata about the key.
-	// Returns (nil, nil) when the token is not found.
-	Authenticate(ctx context.Context, token string) (*AuthResult, error)
-}
-
-// SupabaseAuthenticator validates tokens by hashing them and looking up the
+// Authenticator validates tokens by hashing them and looking up the
 // hash in the api_keys table via sqlc-generated queries.
-type SupabaseAuthenticator struct {
+type Authenticator struct {
 	queries *store.Queries
 	logger  *slog.Logger
 }
 
-// NewSupabaseAuthenticator creates an authenticator backed by the api_keys table.
-func NewSupabaseAuthenticator(queries *store.Queries, logger *slog.Logger) *SupabaseAuthenticator {
-	return &SupabaseAuthenticator{
+// NewAuthenticator creates an authenticator backed by the api_keys table.
+func NewAuthenticator(queries *store.Queries, logger *slog.Logger) *Authenticator {
+	return &Authenticator{
 		queries: queries,
 		logger:  logger,
 	}
@@ -40,7 +26,7 @@ func NewSupabaseAuthenticator(queries *store.Queries, logger *slog.Logger) *Supa
 
 // Authenticate hashes the token, looks it up in the database, fetches the
 // associated databases, and updates last_used_at on success.
-func (a *SupabaseAuthenticator) Authenticate(ctx context.Context, token string) (*AuthResult, error) {
+func (a *Authenticator) Authenticate(ctx context.Context, token string) (*port.AuthResult, error) {
 	hash := HashKey(token)
 
 	row, err := a.queries.ValidateAPIKey(ctx, hash)
@@ -79,7 +65,7 @@ func (a *SupabaseAuthenticator) Authenticate(ctx context.Context, token string) 
 		}
 	}()
 
-	return &AuthResult{
+	return &port.AuthResult{
 		KeyID:       keyID,
 		WorkspaceID: wsID,
 		DatabaseIDs: dbIDs,

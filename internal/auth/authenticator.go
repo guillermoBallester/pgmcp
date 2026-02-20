@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/guillermoBallester/isthmus/internal/store"
+	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 )
 
 // AuthResult contains metadata from a successful authentication.

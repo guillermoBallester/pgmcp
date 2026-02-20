@@ -6,9 +6,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/direct"
-	"github.com/guillermoBallester/isthmus/internal/store"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )

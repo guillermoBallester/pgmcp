@@ -1,7 +1,6 @@
 package config
 
 import (
-	"log/slog"
 	"testing"
 	"time"
 
@@ -10,31 +9,26 @@ import (
 )
 
 func TestLoadServer_Valid(t *testing.T) {
-	t.Setenv("API_KEYS", "key1,key2")
+	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+	t.Setenv("ADMIN_SECRET", "my-secret")
 
 	cfg, err := LoadServer()
 	require.NoError(t, err)
 
 	assert.Equal(t, ":8080", cfg.ListenAddr)
-	assert.Equal(t, []string{"key1", "key2"}, cfg.APIKeys)
-	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
+	assert.Equal(t, "postgresql://localhost/test", cfg.SupabaseDBURL)
+	assert.Equal(t, "my-secret", cfg.AdminSecret)
 }
 
-func TestLoadServer_MissingBothAuthMethods(t *testing.T) {
-	_, err := LoadServer()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SUPABASE_DB_URL or API_KEYS")
-}
-
-func TestLoadServer_EmptyAPIKeysNoSupabase(t *testing.T) {
-	t.Setenv("API_KEYS", "  ,  ,  ")
+func TestLoadServer_MissingSupabaseDBURL(t *testing.T) {
+	t.Setenv("ADMIN_SECRET", "my-secret")
 
 	_, err := LoadServer()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SUPABASE_DB_URL or API_KEYS")
+	assert.Contains(t, err.Error(), "SUPABASE_DB_URL")
 }
 
-func TestLoadServer_SupabaseRequiresAdminSecret(t *testing.T) {
+func TestLoadServer_MissingAdminSecret(t *testing.T) {
 	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
 
 	_, err := LoadServer()
@@ -42,18 +36,9 @@ func TestLoadServer_SupabaseRequiresAdminSecret(t *testing.T) {
 	assert.Contains(t, err.Error(), "ADMIN_SECRET")
 }
 
-func TestLoadServer_SupabaseWithAdminSecret(t *testing.T) {
+func TestLoadServer_CustomListenAddr(t *testing.T) {
 	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
 	t.Setenv("ADMIN_SECRET", "my-secret")
-
-	cfg, err := LoadServer()
-	require.NoError(t, err)
-	assert.Equal(t, "postgresql://localhost/test", cfg.SupabaseDBURL)
-	assert.Equal(t, "my-secret", cfg.AdminSecret)
-}
-
-func TestLoadServer_CustomListenAddr(t *testing.T) {
-	t.Setenv("API_KEYS", "k1")
 	t.Setenv("LISTEN_ADDR", ":9090")
 
 	cfg, err := LoadServer()
@@ -63,17 +48,19 @@ func TestLoadServer_CustomListenAddr(t *testing.T) {
 }
 
 func TestLoadServer_LogLevel(t *testing.T) {
-	t.Setenv("API_KEYS", "k1")
+	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+	t.Setenv("ADMIN_SECRET", "my-secret")
 	t.Setenv("LOG_LEVEL", "debug")
 
 	cfg, err := LoadServer()
 	require.NoError(t, err)
 
-	assert.Equal(t, slog.LevelDebug, cfg.LogLevel)
+	assert.Equal(t, cfg.LogLevel.String(), "DEBUG")
 }
 
 func TestLoadServer_InvalidLogLevel(t *testing.T) {
-	t.Setenv("API_KEYS", "k1")
+	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+	t.Setenv("ADMIN_SECRET", "my-secret")
 	t.Setenv("LOG_LEVEL", "bogus")
 
 	_, err := LoadServer()
@@ -81,26 +68,9 @@ func TestLoadServer_InvalidLogLevel(t *testing.T) {
 	assert.Contains(t, err.Error(), "LOG_LEVEL")
 }
 
-func TestLoadServer_TrimKeys(t *testing.T) {
-	t.Setenv("API_KEYS", " key1 , key2 , key3 ")
-
-	cfg, err := LoadServer()
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"key1", "key2", "key3"}, cfg.APIKeys)
-}
-
-func TestLoadServer_SingleKey(t *testing.T) {
-	t.Setenv("API_KEYS", "only-key")
-
-	cfg, err := LoadServer()
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"only-key"}, cfg.APIKeys)
-}
-
 func TestLoadServer_TunnelDefaults(t *testing.T) {
-	t.Setenv("API_KEYS", "k1")
+	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+	t.Setenv("ADMIN_SECRET", "my-secret")
 
 	cfg, err := LoadServer()
 	require.NoError(t, err)
@@ -114,7 +84,8 @@ func TestLoadServer_TunnelDefaults(t *testing.T) {
 }
 
 func TestLoadServer_TunnelOverrides(t *testing.T) {
-	t.Setenv("API_KEYS", "k1")
+	t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+	t.Setenv("ADMIN_SECRET", "my-secret")
 	t.Setenv("HANDSHAKE_TIMEOUT", "15s")
 	t.Setenv("SHUTDOWN_TIMEOUT", "20s")
 	t.Setenv("READ_HEADER_TIMEOUT", "5s")
@@ -145,7 +116,8 @@ func TestLoadServer_InvalidDurations(t *testing.T) {
 
 	for _, env := range envVars {
 		t.Run(env, func(t *testing.T) {
-			t.Setenv("API_KEYS", "k1")
+			t.Setenv("SUPABASE_DB_URL", "postgresql://localhost/test")
+			t.Setenv("ADMIN_SECRET", "my-secret")
 			t.Setenv(env, "not-a-duration")
 
 			_, err := LoadServer()

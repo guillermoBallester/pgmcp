@@ -11,10 +11,9 @@ import (
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	"github.com/guillermoBallester/isthmus/pkg/core/service"
-	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, mcpSrv *mcpserver.MCPServer, authenticator auth.Authenticator, queries *store.Queries, enc *crypto.AESEncryptor) {
+func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, authenticator auth.Authenticator, queries *store.Queries, enc *crypto.AESEncryptor) {
 	r := chi.NewRouter()
 
 	// Global middleware stack
@@ -23,14 +22,8 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *servic
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
 
-	// MCP endpoint — authenticated, routes to per-database MCPServer via registry.
-	// In multi-tenant mode (queries != nil), clients must provide an API key.
-	// In static-key mode, fall back to the single global MCPServer.
-	if queries != nil {
-		r.HandleFunc("/mcp", s.handleMCP(registry, directSvc, authenticator))
-	} else {
-		r.Handle("/mcp", mcpserver.NewStreamableHTTPServer(mcpSrv))
-	}
+	// MCP endpoint — authenticated, routes to per-database MCPServer.
+	r.HandleFunc("/mcp", s.handleMCP(registry, directSvc, authenticator))
 
 	// Agent tunnel WebSocket endpoint
 	r.HandleFunc("/tunnel", registry.HandleTunnel)
@@ -44,29 +37,27 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *servic
 		r.Post("/api/webhooks/clerk", s.webhookHandler.HandleClerkWebhook())
 	}
 
-	// Admin API — only available when Supabase is configured.
-	if queries != nil && s.adminSecret != "" {
-		r.Route("/api", func(api chi.Router) {
-			if s.corsOrigin != "" {
-				api.Use(cors.Handler(cors.Options{
-					AllowedOrigins:   []string{s.corsOrigin},
-					AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
-					AllowedHeaders:   []string{"Authorization", "Content-Type"},
-					AllowCredentials: false,
-					MaxAge:           300,
-				}))
-			}
-			api.Use(s.adminAuth)
-			api.Post("/keys", s.handleCreateKey(queries))
-			api.Get("/keys", s.handleListKeys(queries))
-			api.Delete("/keys/{id}", s.handleDeleteKey(queries))
-			api.Post("/keys/{id}/databases", s.handleGrantKeyDatabase(queries))
-			api.Delete("/keys/{id}/databases/{db_id}", s.handleRevokeKeyDatabase(queries))
-			api.Post("/databases", s.handleCreateDatabase(queries, enc))
-			api.Get("/databases", s.handleListDatabases(queries))
-			api.Delete("/databases/{id}", s.handleDeleteDatabase(queries, directSvc))
-		})
-	}
+	// Admin API
+	r.Route("/api", func(api chi.Router) {
+		if s.corsOrigin != "" {
+			api.Use(cors.Handler(cors.Options{
+				AllowedOrigins:   []string{s.corsOrigin},
+				AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
+				AllowedHeaders:   []string{"Authorization", "Content-Type"},
+				AllowCredentials: false,
+				MaxAge:           300,
+			}))
+		}
+		api.Use(s.adminAuth)
+		api.Post("/keys", s.handleCreateKey(queries))
+		api.Get("/keys", s.handleListKeys(queries))
+		api.Delete("/keys/{id}", s.handleDeleteKey(queries))
+		api.Post("/keys/{id}/databases", s.handleGrantKeyDatabase(queries))
+		api.Delete("/keys/{id}/databases/{db_id}", s.handleRevokeKeyDatabase(queries))
+		api.Post("/databases", s.handleCreateDatabase(queries, enc))
+		api.Get("/databases", s.handleListDatabases(queries))
+		api.Delete("/databases/{id}", s.handleDeleteDatabase(queries, directSvc))
+	})
 
 	s.router = r
 }

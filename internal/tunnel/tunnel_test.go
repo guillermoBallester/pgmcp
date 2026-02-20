@@ -26,6 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testDatabaseID is a well-known UUID used in tests for the single tunnel database.
+var testDatabaseID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
 // newStaticAuth creates a simple in-memory authenticator for tests.
 func newStaticAuth(keys ...string) auth.Authenticator {
 	return &staticTestAuth{keys: keys}
@@ -39,7 +42,7 @@ func (a *staticTestAuth) Authenticate(_ context.Context, token string) (*auth.Au
 	for _, k := range a.keys {
 		if k == token {
 			return &auth.AuthResult{
-				DatabaseIDs: []uuid.UUID{auth.StaticDatabaseID},
+				DatabaseIDs: []uuid.UUID{testDatabaseID},
 			}, nil
 		}
 	}
@@ -187,7 +190,7 @@ func setupRegistryWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCf
 func forwardCallViaRegistry(t *testing.T, ctx context.Context, registry *TunnelRegistry, sessionID string, payload json.RawMessage) (json.RawMessage, error) {
 	t.Helper()
 	// Get the per-database MCPServer and use its tool handler.
-	entry := registry.tunnels[auth.StaticDatabaseID]
+	entry := registry.tunnels[testDatabaseID]
 	if entry == nil {
 		return nil, ErrNoTunnel
 	}
@@ -211,7 +214,7 @@ func TestTunnelEndToEnd(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "agent should connect")
 
 	// Verify the per-database MCPServer has the "echo" tool.
-	mcpSrv := registry.GetMCPServer(auth.StaticDatabaseID)
+	mcpSrv := registry.GetMCPServer(testDatabaseID)
 	require.NotNil(t, mcpSrv)
 	tool := mcpSrv.GetTool("echo")
 	require.NotNil(t, tool, "echo tool should be registered")
@@ -310,7 +313,7 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 		return registry.AnyConnected()
 	}, 5*time.Second, 50*time.Millisecond)
 
-	mcpSrv := registry.GetMCPServer(auth.StaticDatabaseID)
+	mcpSrv := registry.GetMCPServer(testDatabaseID)
 	require.NotNil(t, mcpSrv)
 
 	session := server.NewInProcessSession("concurrent-session", nil)
@@ -417,7 +420,7 @@ func TestSessionTTLEviction(t *testing.T) {
 
 	// Forward a call to create a session on the agent.
 	registry.mu.RLock()
-	entry := registry.tunnels[auth.StaticDatabaseID]
+	entry := registry.tunnels[testDatabaseID]
 	registry.mu.RUnlock()
 	require.NotNil(t, entry)
 
@@ -452,7 +455,7 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 
 	// Forward a call to create a session.
 	registry.mu.RLock()
-	entry := registry.tunnels[auth.StaticDatabaseID]
+	entry := registry.tunnels[testDatabaseID]
 	registry.mu.RUnlock()
 	_, err := entry.proxy.forwardCall(ctx, "reconnect-sess", json.RawMessage(
 		`{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"echo","arguments":{"message":"hi"}}}`,
@@ -563,7 +566,7 @@ func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 
 	registry.mu.RLock()
-	entry := registry.tunnels[auth.StaticDatabaseID]
+	entry := registry.tunnels[testDatabaseID]
 	registry.mu.RUnlock()
 
 	callDone := make(chan error, 1)
@@ -607,7 +610,7 @@ func TestGracefulShutdownTimeout(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 
 	registry.mu.RLock()
-	entry := registry.tunnels[auth.StaticDatabaseID]
+	entry := registry.tunnels[testDatabaseID]
 	registry.mu.RUnlock()
 
 	go func() {
@@ -642,7 +645,7 @@ func TestPongReportsDraining(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 
 	registry.mu.RLock()
-	entry := registry.tunnels[auth.StaticDatabaseID]
+	entry := registry.tunnels[testDatabaseID]
 	registry.mu.RUnlock()
 
 	_, draining, err := registry.sendPing(entry.yamuxSession)
@@ -677,7 +680,7 @@ func TestHeartbeatConcurrentWithCalls(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 
 	registry.mu.RLock()
-	entry := registry.tunnels[auth.StaticDatabaseID]
+	entry := registry.tunnels[testDatabaseID]
 	registry.mu.RUnlock()
 
 	const n = 5
@@ -724,7 +727,7 @@ func TestHandshakeSuccess(t *testing.T) {
 		return registry.AnyConnected()
 	}, 5*time.Second, 50*time.Millisecond)
 
-	mcpSrv := registry.GetMCPServer(auth.StaticDatabaseID)
+	mcpSrv := registry.GetMCPServer(testDatabaseID)
 	require.NotNil(t, mcpSrv)
 	tool := mcpSrv.GetTool("echo")
 	require.NotNil(t, tool)

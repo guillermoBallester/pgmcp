@@ -16,6 +16,7 @@ import (
 
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
+	"github.com/guillermoBallester/isthmus/internal/direct"
 	"github.com/guillermoBallester/isthmus/internal/server"
 	"github.com/guillermoBallester/isthmus/internal/store"
 	"github.com/guillermoBallester/isthmus/internal/store/migrations"
@@ -108,6 +109,15 @@ func run() error {
 	// MCPServer + Proxy. In static-key mode, uses StaticDatabaseID.
 	registry := itunnel.NewTunnelRegistry(authenticator, tunnelCfg, version, logger)
 
+	// DirectManager — manages direct database connections (no agent needed).
+	// Only enabled when Supabase + encryption key are configured.
+	var directMgr *direct.Manager
+	if queries != nil && cfg.EncryptionKey != "" {
+		directMgr = direct.NewManager(queries, cfg.EncryptionKey, version, logger)
+		defer directMgr.Close()
+		logger.Info("direct connection manager enabled")
+	}
+
 	// Cloud MCPServer — used as fallback for static-key mode only.
 	// In multi-tenant mode, per-database MCPServers are created by the registry.
 	mcpSrv := mcpserver.NewMCPServer("isthmus-cloud", version,
@@ -121,10 +131,10 @@ func run() error {
 	}
 
 	// HTTP server with chi routing and middleware.
-	srv := server.New(cfg.ListenAddr, registry, mcpSrv, authenticator, config.HTTPConfig{
+	srv := server.New(cfg.ListenAddr, registry, directMgr, mcpSrv, authenticator, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, queries, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)
+	}, queries, cfg.AdminSecret, cfg.CORSOrigin, cfg.EncryptionKey, webhookHandler, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {

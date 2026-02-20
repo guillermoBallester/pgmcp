@@ -17,6 +17,7 @@ type ServerConfig struct {
 	AdminSecret            string
 	CORSOrigin             string
 	ClerkWebhookSecret     string
+	EncryptionKey          string
 	LogLevel               slog.Level
 	HeartbeatInterval      time.Duration
 	HeartbeatTimeout       time.Duration
@@ -56,6 +57,7 @@ func LoadServer() (*ServerConfig, error) {
 	cfg.AdminSecret = os.Getenv("ADMIN_SECRET")
 	cfg.CORSOrigin = os.Getenv("CORS_ORIGIN")
 	cfg.ClerkWebhookSecret = os.Getenv("CLERK_WEBHOOK_SECRET")
+	cfg.EncryptionKey = os.Getenv("ENCRYPTION_KEY")
 	keysRaw := os.Getenv("API_KEYS")
 	if keysRaw != "" {
 		for _, k := range strings.Split(keysRaw, ",") {

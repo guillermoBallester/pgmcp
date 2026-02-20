@@ -13,8 +13,8 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/guillermoBallester/isthmus/internal/adapter/postgres"
+	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/crypto"
-	"github.com/guillermoBallester/isthmus/internal/store"
 	"github.com/guillermoBallester/isthmus/pkg/app"
 	"github.com/guillermoBallester/isthmus/pkg/core/domain"
 	"github.com/guillermoBallester/isthmus/pkg/core/service"

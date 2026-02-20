@@ -9,10 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/crypto"
 	"github.com/guillermoBallester/isthmus/internal/direct"
-	"github.com/guillermoBallester/isthmus/internal/store"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 

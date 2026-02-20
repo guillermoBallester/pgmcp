@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	svix "github.com/svix/svix-webhooks/go"
 
+	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/clerk"
-	"github.com/guillermoBallester/isthmus/internal/store"
 )
 
 // WebhookHandler processes Clerk webhook events.

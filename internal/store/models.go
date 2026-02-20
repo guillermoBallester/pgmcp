@@ -9,12 +9,53 @@ import (
 )
 
 type ApiKey struct {
-	ID         pgtype.UUID        `json:"id"`
-	KeyHash    string             `json:"key_hash"`
-	KeyPrefix  string             `json:"key_prefix"`
-	Name       string             `json:"name"`
-	IsActive   bool               `json:"is_active"`
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Name        string             `json:"name"`
+	KeyPrefix   string             `json:"key_prefix"`
+	KeyHash     string             `json:"key_hash"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt  pgtype.Timestamptz `json:"last_used_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type ApiKeyDatabase struct {
+	ApiKeyID   pgtype.UUID        `json:"api_key_id"`
+	DatabaseID pgtype.UUID        `json:"database_id"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type Database struct {
+	ID                     pgtype.UUID        `json:"id"`
+	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	Name                   string             `json:"name"`
+	ConnectionType         string             `json:"connection_type"`
+	EncryptedConnectionUrl []byte             `json:"encrypted_connection_url"`
+	Status                 string             `json:"status"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+}
+
+type User struct {
+	ID          pgtype.UUID        `json:"id"`
+	ClerkUserID string             `json:"clerk_user_id"`
+	Email       string             `json:"email"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type Workspace struct {
+	ID          pgtype.UUID        `json:"id"`
+	ClerkOrgID  pgtype.Text        `json:"clerk_org_id"`
+	OwnerUserID pgtype.UUID        `json:"owner_user_id"`
+	Name        string             `json:"name"`
+	IsPersonal  bool               `json:"is_personal"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type WorkspaceMember struct {
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	Role        string             `json:"role"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }

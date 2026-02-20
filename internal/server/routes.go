@@ -28,6 +28,11 @@ func (s *Server) setupRoutes(tunnelSrv *itunnel.TunnelServer, mcpSrv *mcpserver.
 	r.Get("/health", s.handleHealth())
 	r.Get("/ready", s.handleReady(tunnelSrv))
 
+	// Clerk webhook — Svix-verified, no admin auth needed.
+	if s.webhookHandler != nil {
+		r.Post("/api/webhooks/clerk", s.webhookHandler.HandleClerkWebhook())
+	}
+
 	// Admin API — only available when Supabase is configured.
 	if queries != nil && s.adminSecret != "" {
 		r.Route("/api", func(api chi.Router) {
@@ -43,7 +48,7 @@ func (s *Server) setupRoutes(tunnelSrv *itunnel.TunnelServer, mcpSrv *mcpserver.
 			api.Use(s.adminAuth)
 			api.Post("/keys", s.handleCreateKey(queries))
 			api.Get("/keys", s.handleListKeys(queries))
-			api.Delete("/keys/{id}", s.handleRevokeKey(queries))
+			api.Delete("/keys/{id}", s.handleDeleteKey(queries))
 		})
 	}
 

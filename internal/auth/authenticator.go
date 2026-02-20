@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/guillermoBallester/isthmus/internal/store"
@@ -71,25 +70,4 @@ func (a *SupabaseAuthenticator) Authenticate(ctx context.Context, token string) 
 	}()
 
 	return true, nil
-}
-
-// CreateKey generates a new API key, stores its hash in the database, and
-// returns the full plaintext key (shown to the user once) along with the
-// database row.
-func (a *SupabaseAuthenticator) CreateKey(ctx context.Context, name string) (string, store.CreateAPIKeyRow, error) {
-	fullKey, hash, displayPrefix, err := GenerateKey()
-	if err != nil {
-		return "", store.CreateAPIKeyRow{}, fmt.Errorf("generating key: %w", err)
-	}
-
-	row, err := a.queries.CreateAPIKey(ctx, store.CreateAPIKeyParams{
-		KeyHash:   hash,
-		KeyPrefix: displayPrefix,
-		Name:      name,
-	})
-	if err != nil {
-		return "", store.CreateAPIKeyRow{}, fmt.Errorf("inserting key: %w", err)
-	}
-
-	return fullKey, row, nil
 }

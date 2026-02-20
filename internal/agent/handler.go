@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/guillermoBallester/isthmus/pkg/tunnel"
+	"github.com/guillermoBallester/isthmus/internal/protocol"
 )
 
 func (a *Agent) handleStream(ctx context.Context, stream net.Conn) {
 	defer stream.Close() //nolint:errcheck // best-effort cleanup
 
-	msgType, payload, err := tunnel.ReadRawFrame(stream)
+	msgType, payload, err := protocol.ReadRawFrame(stream)
 	if err != nil {
 		a.logger.Error("failed to read tunnel frame",
 			slog.String("error", err.Error()),
@@ -22,11 +22,11 @@ func (a *Agent) handleStream(ctx context.Context, stream net.Conn) {
 	}
 
 	switch msgType {
-	case tunnel.MessageTypeHandshake:
+	case protocol.MessageTypeHandshake:
 		a.handleHandshake(stream, payload)
-	case tunnel.MessageTypePing:
+	case protocol.MessageTypePing:
 		a.handlePing(stream, payload)
-	case tunnel.MessageTypeRequest:
+	case protocol.MessageTypeRequest:
 		a.handleRequest(ctx, stream, payload)
 	default:
 		a.logger.Warn("unknown message type",
@@ -36,7 +36,7 @@ func (a *Agent) handleStream(ctx context.Context, stream net.Conn) {
 }
 
 func (a *Agent) handleHandshake(stream net.Conn, payload json.RawMessage) {
-	var h tunnel.Handshake
+	var h protocol.Handshake
 	if err := json.Unmarshal(payload, &h); err != nil {
 		a.logger.Error("failed to unmarshal handshake",
 			slog.String("error", err.Error()),
@@ -44,17 +44,17 @@ func (a *Agent) handleHandshake(stream net.Conn, payload json.RawMessage) {
 		return
 	}
 
-	ack := &tunnel.HandshakeAck{
-		ProtocolVersion: tunnel.ProtocolVersion,
+	ack := &protocol.HandshakeAck{
+		ProtocolVersion: protocol.ProtocolVersion,
 		AgentVersion:    a.agentVersion,
 	}
 
 	// Check protocol version compatibility (exact match for now).
-	if h.ProtocolVersion != tunnel.ProtocolVersion {
-		ack.Error = fmt.Sprintf("incompatible protocol version: server=%d, agent=%d", h.ProtocolVersion, tunnel.ProtocolVersion)
+	if h.ProtocolVersion != protocol.ProtocolVersion {
+		ack.Error = fmt.Sprintf("incompatible protocol version: server=%d, agent=%d", h.ProtocolVersion, protocol.ProtocolVersion)
 		a.logger.Error("handshake version mismatch",
 			slog.Uint64("server_version", uint64(h.ProtocolVersion)),
-			slog.Uint64("agent_version", uint64(tunnel.ProtocolVersion)),
+			slog.Uint64("agent_version", uint64(protocol.ProtocolVersion)),
 		)
 	} else {
 		a.logger.Info("handshake received",
@@ -63,7 +63,7 @@ func (a *Agent) handleHandshake(stream net.Conn, payload json.RawMessage) {
 		)
 	}
 
-	if err := tunnel.WriteHandshakeAck(stream, ack); err != nil {
+	if err := protocol.WriteHandshakeAck(stream, ack); err != nil {
 		a.logger.Error("failed to write handshake ack",
 			slog.String("error", err.Error()),
 		)
@@ -71,7 +71,7 @@ func (a *Agent) handleHandshake(stream net.Conn, payload json.RawMessage) {
 }
 
 func (a *Agent) handlePing(stream net.Conn, payload json.RawMessage) {
-	var ping tunnel.Ping
+	var ping protocol.Ping
 	if err := json.Unmarshal(payload, &ping); err != nil {
 		a.logger.Error("failed to unmarshal ping",
 			slog.String("error", err.Error()),
@@ -79,12 +79,12 @@ func (a *Agent) handlePing(stream net.Conn, payload json.RawMessage) {
 		return
 	}
 
-	pong := &tunnel.Pong{
+	pong := &protocol.Pong{
 		Timestamp: ping.Timestamp,
 		Draining:  a.draining.Load(),
 	}
 
-	if err := tunnel.WritePong(stream, pong); err != nil {
+	if err := protocol.WritePong(stream, pong); err != nil {
 		a.logger.Error("failed to write pong",
 			slog.String("error", err.Error()),
 		)
@@ -92,7 +92,7 @@ func (a *Agent) handlePing(stream net.Conn, payload json.RawMessage) {
 }
 
 func (a *Agent) handleRequest(ctx context.Context, stream net.Conn, payload json.RawMessage) {
-	var req tunnel.Request
+	var req protocol.Request
 	if err := json.Unmarshal(payload, &req); err != nil {
 		a.logger.Error("failed to unmarshal tunnel request",
 			slog.String("error", err.Error()),
@@ -104,8 +104,8 @@ func (a *Agent) handleRequest(ctx context.Context, stream net.Conn, payload json
 		a.logger.Error("invalid tunnel request",
 			slog.String("error", err.Error()),
 		)
-		resp := &tunnel.Response{Error: err.Error()}
-		_ = tunnel.WriteResponse(stream, resp)
+		resp := &protocol.Response{Error: err.Error()}
+		_ = protocol.WriteResponse(stream, resp)
 		return
 	}
 
@@ -116,13 +116,13 @@ func (a *Agent) handleRequest(ctx context.Context, stream net.Conn, payload json
 
 	respPayload, err := json.Marshal(result)
 	if err != nil {
-		resp := &tunnel.Response{Error: fmt.Sprintf("marshal response: %v", err)}
-		_ = tunnel.WriteResponse(stream, resp)
+		resp := &protocol.Response{Error: fmt.Sprintf("marshal response: %v", err)}
+		_ = protocol.WriteResponse(stream, resp)
 		return
 	}
 
-	resp := &tunnel.Response{Payload: respPayload}
-	if err := tunnel.WriteResponse(stream, resp); err != nil {
+	resp := &protocol.Response{Payload: respPayload}
+	if err := protocol.WriteResponse(stream, resp); err != nil {
 		a.logger.Error("failed to write tunnel response",
 			slog.String("error", err.Error()),
 		)

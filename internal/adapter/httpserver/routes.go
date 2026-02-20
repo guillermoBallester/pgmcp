@@ -1,4 +1,4 @@
-package server
+package httpserver
 
 import (
 	"net/http"
@@ -9,8 +9,8 @@ import (
 	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
+	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
-	"github.com/guillermoBallester/isthmus/pkg/core/service"
 )
 
 func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, authenticator auth.Authenticator, queries *store.Queries, enc *crypto.AESEncryptor) {

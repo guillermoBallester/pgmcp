@@ -4,18 +4,18 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/guillermoBallester/isthmus/pkg/core/domain"
-	"github.com/guillermoBallester/isthmus/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/internal/core/domain"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 )
 
 // QueryService orchestrates SQL validation (domain) and execution (infrastructure).
 type QueryService struct {
 	validator *domain.QueryValidator
-	executor  ports.QueryExecutor
+	executor  port.QueryExecutor
 	logger    *slog.Logger
 }
 
-func NewQueryService(validator *domain.QueryValidator, executor ports.QueryExecutor, logger *slog.Logger) *QueryService {
+func NewQueryService(validator *domain.QueryValidator, executor port.QueryExecutor, logger *slog.Logger) *QueryService {
 	return &QueryService{
 		validator: validator,
 		executor:  executor,

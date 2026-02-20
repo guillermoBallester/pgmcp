@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/guillermoBallester/isthmus/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 )
 
 func (e *Explorer) fetchTableComment(ctx context.Context, schema, tableName string) (string, error) {
@@ -34,16 +34,16 @@ func (e *Explorer) fetchTableMeta(ctx context.Context, tableName string) (schema
 	return schema, comment, nil
 }
 
-func (e *Explorer) fetchColumns(ctx context.Context, schema, tableName string) ([]ports.ColumnInfo, error) {
+func (e *Explorer) fetchColumns(ctx context.Context, schema, tableName string) ([]port.ColumnInfo, error) {
 	rows, err := e.pool.Query(ctx, queryColumns, schema, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("querying columns: %w", err)
 	}
 	defer rows.Close()
 
-	var cols []ports.ColumnInfo
+	var cols []port.ColumnInfo
 	for rows.Next() {
-		var col ports.ColumnInfo
+		var col port.ColumnInfo
 		if err := rows.Scan(&col.Name, &col.DataType, &col.IsNullable, &col.DefaultValue, &col.Comment); err != nil {
 			return nil, fmt.Errorf("scanning column: %w", err)
 		}
@@ -52,7 +52,7 @@ func (e *Explorer) fetchColumns(ctx context.Context, schema, tableName string) (
 	return cols, rows.Err()
 }
 
-func (e *Explorer) markPrimaryKeys(ctx context.Context, detail *ports.TableDetail) error {
+func (e *Explorer) markPrimaryKeys(ctx context.Context, detail *port.TableDetail) error {
 	rows, err := e.pool.Query(ctx, queryPrimaryKeys, detail.Schema, detail.Name)
 	if err != nil {
 		return fmt.Errorf("querying primary keys: %w", err)
@@ -79,16 +79,16 @@ func (e *Explorer) markPrimaryKeys(ctx context.Context, detail *ports.TableDetai
 	return nil
 }
 
-func (e *Explorer) fetchForeignKeys(ctx context.Context, schema, tableName string) ([]ports.ForeignKey, error) {
+func (e *Explorer) fetchForeignKeys(ctx context.Context, schema, tableName string) ([]port.ForeignKey, error) {
 	rows, err := e.pool.Query(ctx, queryForeignKeys, schema, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("querying foreign keys: %w", err)
 	}
 	defer rows.Close()
 
-	var fks []ports.ForeignKey
+	var fks []port.ForeignKey
 	for rows.Next() {
-		var fk ports.ForeignKey
+		var fk port.ForeignKey
 		if err := rows.Scan(&fk.ConstraintName, &fk.ColumnName, &fk.ReferencedTable, &fk.ReferencedColumn); err != nil {
 			return nil, fmt.Errorf("scanning fk: %w", err)
 		}
@@ -97,16 +97,16 @@ func (e *Explorer) fetchForeignKeys(ctx context.Context, schema, tableName strin
 	return fks, rows.Err()
 }
 
-func (e *Explorer) fetchIndexes(ctx context.Context, schema, tableName string) ([]ports.IndexInfo, error) {
+func (e *Explorer) fetchIndexes(ctx context.Context, schema, tableName string) ([]port.IndexInfo, error) {
 	rows, err := e.pool.Query(ctx, queryIndexes, schema, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("querying indexes: %w", err)
 	}
 	defer rows.Close()
 
-	var idxs []ports.IndexInfo
+	var idxs []port.IndexInfo
 	for rows.Next() {
-		var idx ports.IndexInfo
+		var idx port.IndexInfo
 		if err := rows.Scan(&idx.Name, &idx.Definition, &idx.IsUnique); err != nil {
 			return nil, fmt.Errorf("scanning index: %w", err)
 		}

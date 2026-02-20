@@ -1,9 +1,9 @@
-package app
+package mcp
 
 import (
 	"log/slog"
 
-	"github.com/guillermoBallester/isthmus/pkg/core/service"
+	"github.com/guillermoBallester/isthmus/internal/core/service"
 	"github.com/mark3labs/mcp-go/server"
 )
 

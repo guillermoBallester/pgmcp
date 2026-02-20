@@ -10,7 +10,7 @@ import (
 )
 
 // AESEncryptor provides AES-256-GCM encryption and decryption.
-// It implements ports.Encryptor for the Decrypt method.
+// It implements port.Encryptor for the Decrypt method.
 type AESEncryptor struct {
 	gcm cipher.AEAD
 }
@@ -42,7 +42,7 @@ func (e *AESEncryptor) Encrypt(plaintext []byte) ([]byte, error) {
 }
 
 // Decrypt decrypts ciphertext (nonce || ciphertext) using AES-256-GCM.
-// Implements ports.Encryptor.
+// Implements port.Encryptor.
 func (e *AESEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 	nonceSize := e.gcm.NonceSize()
 	if len(ciphertext) < nonceSize {

@@ -11,13 +11,13 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/guillermoBallester/isthmus/internal/adapter/mcp"
 	"github.com/guillermoBallester/isthmus/internal/adapter/postgres"
+	"github.com/guillermoBallester/isthmus/internal/agent"
 	"github.com/guillermoBallester/isthmus/internal/config"
-	"github.com/guillermoBallester/isthmus/pkg/app"
-	"github.com/guillermoBallester/isthmus/pkg/core/domain"
-	"github.com/guillermoBallester/isthmus/pkg/core/service"
-	"github.com/guillermoBallester/isthmus/pkg/tunnel"
-	"github.com/guillermoBallester/isthmus/pkg/tunnel/agent"
+	"github.com/guillermoBallester/isthmus/internal/core/domain"
+	"github.com/guillermoBallester/isthmus/internal/core/service"
+	"github.com/guillermoBallester/isthmus/internal/protocol"
 )
 
 var version = "dev"
@@ -72,16 +72,16 @@ func run() error {
 	querySvc := service.NewQueryService(validator, executor, logger)
 
 	// MCP server with real tool handlers (same as standalone binary).
-	mcpServer := app.NewServer(version, explorerSvc, querySvc, logger)
+	mcpServer := mcp.NewServer(version, explorerSvc, querySvc, logger)
 
 	// Tunnel agent — connects outbound to cloud server.
-	tunnelCfg := tunnel.AgentTunnelConfig{
+	tunnelCfg := protocol.AgentTunnelConfig{
 		SessionTTL:             cfg.SessionTTL,
 		SessionCleanupInterval: cfg.SessionCleanupInterval,
 		InitialBackoff:         cfg.ReconnectInitialBackoff,
 		MaxBackoff:             cfg.ReconnectMaxBackoff,
 		ForceCloseTimeout:      cfg.ForceCloseTimeout,
-		Yamux: tunnel.YamuxConfig{
+		Yamux: protocol.YamuxConfig{
 			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},

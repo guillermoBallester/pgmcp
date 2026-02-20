@@ -1,4 +1,4 @@
-package server
+package httpserver
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
+	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
-	"github.com/guillermoBallester/isthmus/pkg/core/service"
 )
 
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.

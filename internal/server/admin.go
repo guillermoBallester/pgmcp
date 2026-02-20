@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/auth"
+	"github.com/guillermoBallester/isthmus/internal/crypto"
+	"github.com/guillermoBallester/isthmus/internal/direct"
 	"github.com/guillermoBallester/isthmus/internal/store"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -213,6 +216,7 @@ type createDatabaseRequest struct {
 	WorkspaceID    string `json:"workspace_id"`
 	Name           string `json:"name"`
 	ConnectionType string `json:"connection_type"` // "tunnel" or "direct"
+	ConnectionURL  string `json:"connection_url"`  // required when connection_type="direct"
 }
 
 type databaseResponse struct {
@@ -225,7 +229,8 @@ type databaseResponse struct {
 }
 
 // handleCreateDatabase creates a new database record.
-func (s *Server) handleCreateDatabase(queries *store.Queries) http.HandlerFunc {
+// For direct connections, encrypts and stores the connection URL.
+func (s *Server) handleCreateDatabase(queries *store.Queries, encryptionKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createDatabaseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -246,25 +251,67 @@ func (s *Server) handleCreateDatabase(queries *store.Queries) http.HandlerFunc {
 			return
 		}
 
-		row, err := queries.CreateDatabase(r.Context(), store.CreateDatabaseParams{
-			WorkspaceID:    wsID,
-			Name:           req.Name,
-			ConnectionType: req.ConnectionType,
-			Status:         "pending",
-		})
-		if err != nil {
-			s.logger.Error("failed to create database", slog.String("error", err.Error()))
-			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-			return
-		}
+		var resp databaseResponse
 
-		resp := databaseResponse{
-			ID:             uuidToString(row.ID),
-			WorkspaceID:    uuidToString(row.WorkspaceID),
-			Name:           row.Name,
-			ConnectionType: row.ConnectionType,
-			Status:         row.Status,
-			CreatedAt:      formatTimestamptz(row.CreatedAt),
+		if req.ConnectionType == "direct" {
+			if req.ConnectionURL == "" {
+				http.Error(w, `{"error":"connection_url is required for direct connections"}`, http.StatusBadRequest)
+				return
+			}
+			if encryptionKey == "" {
+				http.Error(w, `{"error":"direct connections not enabled (ENCRYPTION_KEY not set)"}`, http.StatusBadRequest)
+				return
+			}
+
+			encrypted, err := crypto.Encrypt([]byte(req.ConnectionURL), encryptionKey)
+			if err != nil {
+				s.logger.Error("failed to encrypt connection URL", slog.String("error", err.Error()))
+				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+				return
+			}
+
+			row, err := queries.CreateDatabaseWithURL(r.Context(), store.CreateDatabaseWithURLParams{
+				WorkspaceID:            wsID,
+				Name:                   req.Name,
+				ConnectionType:         "direct",
+				EncryptedConnectionUrl: encrypted,
+				Status:                 "ready",
+			})
+			if err != nil {
+				s.logger.Error("failed to create database", slog.String("error", err.Error()))
+				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+				return
+			}
+
+			resp = databaseResponse{
+				ID:             uuidToString(row.ID),
+				WorkspaceID:    uuidToString(row.WorkspaceID),
+				Name:           row.Name,
+				ConnectionType: row.ConnectionType,
+				Status:         row.Status,
+				CreatedAt:      formatTimestamptz(row.CreatedAt),
+			}
+		} else {
+			row, err := queries.CreateDatabase(r.Context(), store.CreateDatabaseParams{
+				WorkspaceID:    wsID,
+				Name:           req.Name,
+				ConnectionType: req.ConnectionType,
+				Status:         "pending",
+			})
+			if err != nil {
+				s.logger.Error("failed to create database", slog.String("error", err.Error()))
+				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+				return
+			}
+
+			resp = databaseResponse{
+				ID:             uuidToString(row.ID),
+				WorkspaceID:    uuidToString(row.WorkspaceID),
+				Name:           row.Name,
+				ConnectionType: row.ConnectionType,
+				Status:         row.Status,
+				CreatedAt:      formatTimestamptz(row.CreatedAt),
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -312,8 +359,8 @@ func (s *Server) handleListDatabases(queries *store.Queries) http.HandlerFunc {
 	}
 }
 
-// handleDeleteDatabase deletes a database record.
-func (s *Server) handleDeleteDatabase(queries *store.Queries) http.HandlerFunc {
+// handleDeleteDatabase deletes a database record and cleans up any cached direct connection.
+func (s *Server) handleDeleteDatabase(queries *store.Queries, directMgr *direct.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		wsIDStr := r.URL.Query().Get("workspace_id")
@@ -337,6 +384,13 @@ func (s *Server) handleDeleteDatabase(queries *store.Queries) http.HandlerFunc {
 			s.logger.Error("failed to delete database", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
+		}
+
+		// Clean up cached direct connection if any.
+		if directMgr != nil {
+			if dbUUID, err := uuid.Parse(idStr); err == nil {
+				directMgr.Remove(dbUUID)
+			}
 		}
 
 		w.WriteHeader(http.StatusNoContent)

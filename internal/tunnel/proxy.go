@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/guillermoBallester/isthmus/pkg/tunnel"
+	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -42,11 +43,10 @@ type toolCallResponse struct {
 
 const defaultDiscoveryTimeout = 30 * time.Second
 
-// Proxy discovers tools from the agent when it connects and registers
-// proxy handlers on the cloud server's MCPServer that forward calls
-// through the tunnel.
+// Proxy discovers tools from an agent and registers proxy handlers on a
+// per-database MCPServer that forward calls through a yamux session.
 type Proxy struct {
-	tunnel    *TunnelServer
+	session   *yamux.Session
 	mcpServer *server.MCPServer
 	cfg       tunnel.ServerTunnelConfig
 	logger    *slog.Logger
@@ -56,10 +56,10 @@ type Proxy struct {
 	reqCounter atomic.Uint64
 }
 
-// NewProxy creates a new proxy that bridges the tunnel and cloud MCPServer.
-func NewProxy(tunnel *TunnelServer, mcpServer *server.MCPServer, cfg tunnel.ServerTunnelConfig, logger *slog.Logger) *Proxy {
+// NewProxy creates a new proxy that bridges a yamux session and an MCPServer.
+func NewProxy(session *yamux.Session, mcpServer *server.MCPServer, cfg tunnel.ServerTunnelConfig, logger *slog.Logger) *Proxy {
 	return &Proxy{
-		tunnel:    tunnel,
+		session:   session,
 		mcpServer: mcpServer,
 		cfg:       cfg,
 		logger:    logger,
@@ -78,12 +78,6 @@ func (p *Proxy) ToolNames() []string {
 	return out
 }
 
-// Setup registers the onConnect/onDisconnect callbacks on the TunnelServer.
-func (p *Proxy) Setup() {
-	p.tunnel.SetOnConnect(p.onAgentConnect)
-	p.tunnel.SetOnDisconnect(p.onAgentDisconnect)
-}
-
 func (p *Proxy) nextRequestID() string {
 	return fmt.Sprintf("proxy-%d", p.reqCounter.Add(1))
 }
@@ -95,7 +89,9 @@ func (p *Proxy) discoveryTimeout() time.Duration {
 	return defaultDiscoveryTimeout
 }
 
-func (p *Proxy) onAgentConnect() {
+// DiscoverAndRegister sends a tools/list request through the tunnel,
+// discovers the agent's tools, and registers proxy handlers on the MCPServer.
+func (p *Proxy) DiscoverAndRegister() error {
 	p.logger.Info("discovering tools from agent")
 
 	// Send a tools/list request through the tunnel.
@@ -106,36 +102,24 @@ func (p *Proxy) onAgentConnect() {
 	}
 	payload, err := json.Marshal(listReq)
 	if err != nil {
-		p.logger.Error("failed to marshal tools/list request",
-			slog.String("error", err.Error()),
-		)
-		return
+		return fmt.Errorf("marshal tools/list request: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), p.discoveryTimeout())
 	defer cancel()
 
-	respBytes, err := p.tunnel.ForwardCall(ctx, "discovery", payload)
+	respBytes, err := p.forwardCall(ctx, "discovery", payload)
 	if err != nil {
-		p.logger.Error("failed to discover tools",
-			slog.String("error", err.Error()),
-		)
-		return
+		return fmt.Errorf("discover tools: %w", err)
 	}
 
 	// Parse the JSON-RPC response to extract tools.
 	var rpcResp toolsListResponse
 	if err := json.Unmarshal(respBytes, &rpcResp); err != nil {
-		p.logger.Error("failed to parse tools/list response",
-			slog.String("error", err.Error()),
-		)
-		return
+		return fmt.Errorf("parse tools/list response: %w", err)
 	}
 	if rpcResp.Error != nil {
-		p.logger.Error("tools/list returned error",
-			slog.String("error", rpcResp.Error.Message),
-		)
-		return
+		return fmt.Errorf("tools/list error: %s", rpcResp.Error.Message)
 	}
 
 	// Register proxy handlers for each discovered tool.
@@ -153,9 +137,12 @@ func (p *Proxy) onAgentConnect() {
 		slog.Int("count", len(names)),
 		slog.Any("tools", names),
 	)
+
+	return nil
 }
 
-func (p *Proxy) onAgentDisconnect() {
+// Cleanup removes all registered tools from the MCPServer.
+func (p *Proxy) Cleanup() {
 	p.mu.Lock()
 	names := p.toolNames
 	p.toolNames = nil
@@ -167,6 +154,34 @@ func (p *Proxy) onAgentDisconnect() {
 			slog.Int("count", len(names)),
 		)
 	}
+}
+
+// forwardCall sends a JSON-RPC payload through a new yamux stream and returns the response.
+func (p *Proxy) forwardCall(ctx context.Context, sessionID string, payload json.RawMessage) (json.RawMessage, error) {
+	stream, err := p.session.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open yamux stream: %w", err)
+	}
+	defer stream.Close() //nolint:errcheck // best-effort cleanup
+
+	req := tunnel.Request{
+		SessionID: sessionID,
+		Payload:   payload,
+	}
+	if err := tunnel.WriteRequest(stream, &req); err != nil {
+		return nil, fmt.Errorf("write tunnel request: %w", err)
+	}
+
+	resp, err := tunnel.ReadResponse(stream)
+	if err != nil {
+		return nil, fmt.Errorf("read tunnel response: %w", err)
+	}
+
+	if resp.Error != "" {
+		return nil, fmt.Errorf("agent error: %s", resp.Error)
+	}
+
+	return resp.Payload, nil
 }
 
 func (p *Proxy) makeProxyHandler(toolName string) server.ToolHandlerFunc {
@@ -200,7 +215,7 @@ func (p *Proxy) makeProxyHandler(toolName string) server.ToolHandlerFunc {
 			return mcp.NewToolResultErrorFromErr("marshal request", err), nil
 		}
 
-		respBytes, err := p.tunnel.ForwardCall(ctx, sessionID, payload)
+		respBytes, err := p.forwardCall(ctx, sessionID, payload)
 		if err != nil {
 			log.Error("tunnel forward failed", slog.String("error", err.Error()))
 			return mcp.NewToolResultErrorFromErr("tunnel error", err), nil

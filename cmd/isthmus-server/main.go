@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	clerklib "github.com/clerk/clerk-sdk-go/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
-	"github.com/guillermoBallester/isthmus/internal/crypto"
 	"github.com/guillermoBallester/isthmus/internal/server"
 	"github.com/guillermoBallester/isthmus/internal/store"
 	"github.com/guillermoBallester/isthmus/internal/store/migrations"
@@ -55,7 +53,7 @@ func run() error {
 
 	// Build authenticator based on configuration.
 	var (
-		authenticator itunnel.Authenticator
+		authenticator auth.Authenticator
 		queries       *store.Queries
 		pool          *pgxpool.Pool
 	)
@@ -79,7 +77,7 @@ func run() error {
 		supaAuth := auth.NewSupabaseAuthenticator(queries, logger)
 		authenticator = supaAuth
 
-		logger.Info("using supabase authenticator")
+		logger.Info("using supabase authenticator (multi-tenant)")
 
 		if cfg.ClerkWebhookSecret != "" {
 			logger.Info("clerk webhook handler enabled")
@@ -91,13 +89,7 @@ func run() error {
 		)
 	}
 
-	// Cloud MCPServer — starts with zero tools. Tools are added dynamically
-	// when the agent connects and removed when it disconnects.
-	mcpSrv := mcpserver.NewMCPServer("isthmus-cloud", version,
-		mcpserver.WithToolCapabilities(true),
-	)
-
-	// Tunnel server — manages WebSocket connection to the agent.
+	// Tunnel config.
 	tunnelCfg := tunnel.ServerTunnelConfig{
 		Heartbeat: tunnel.HeartbeatConfig{
 			Interval:      cfg.HeartbeatInterval,
@@ -110,11 +102,17 @@ func run() error {
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},
 	}
-	tunnelSrv := itunnel.NewTunnelServer(authenticator, tunnelCfg, version, logger)
 
-	// Proxy — discovers agent tools and registers proxy handlers on the cloud MCPServer.
-	proxy := itunnel.NewProxy(tunnelSrv, mcpSrv, tunnelCfg, logger)
-	proxy.Setup()
+	// TunnelRegistry — manages multiple simultaneous agent tunnels.
+	// Each agent connects for a specific database and gets its own
+	// MCPServer + Proxy. In static-key mode, uses StaticDatabaseID.
+	registry := itunnel.NewTunnelRegistry(authenticator, tunnelCfg, version, logger)
+
+	// Cloud MCPServer — used as fallback for static-key mode only.
+	// In multi-tenant mode, per-database MCPServers are created by the registry.
+	mcpSrv := mcpserver.NewMCPServer("isthmus-cloud", version,
+		mcpserver.WithToolCapabilities(true),
+	)
 
 	// Clerk webhook handler (optional).
 	var webhookHandler *server.WebhookHandler
@@ -122,29 +120,11 @@ func run() error {
 		webhookHandler = server.NewWebhookHandler(pool, queries, cfg.ClerkWebhookSecret, logger)
 	}
 
-	// Encryption for database connection URLs (optional).
-	var encryptor *crypto.Encryptor
-	if cfg.EncryptionKey != "" {
-		encryptor, err = crypto.NewEncryptor(cfg.EncryptionKey)
-		if err != nil {
-			return fmt.Errorf("initializing encryptor: %w", err)
-		}
-		logger.Info("database connection URL encryption enabled")
-	}
-
-	// Clerk JWT authentication for control plane (optional).
-	clerkEnabled := false
-	if cfg.ClerkSecretKey != "" {
-		clerklib.SetKey(cfg.ClerkSecretKey)
-		clerkEnabled = true
-		logger.Info("clerk JWT authentication enabled for control plane")
-	}
-
 	// HTTP server with chi routing and middleware.
-	srv := server.New(cfg.ListenAddr, tunnelSrv, mcpSrv, config.HTTPConfig{
+	srv := server.New(cfg.ListenAddr, registry, mcpSrv, authenticator, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, queries, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, encryptor, clerkEnabled, logger)
+	}, queries, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {

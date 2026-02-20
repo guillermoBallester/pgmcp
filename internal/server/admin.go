@@ -206,3 +206,211 @@ func formatTimestamptz(ts pgtype.Timestamptz) string {
 	}
 	return ts.Time.Format(time.RFC3339)
 }
+
+// --- Database management endpoints ---
+
+type createDatabaseRequest struct {
+	WorkspaceID    string `json:"workspace_id"`
+	Name           string `json:"name"`
+	ConnectionType string `json:"connection_type"` // "tunnel" or "direct"
+}
+
+type databaseResponse struct {
+	ID             string `json:"id"`
+	WorkspaceID    string `json:"workspace_id"`
+	Name           string `json:"name"`
+	ConnectionType string `json:"connection_type"`
+	Status         string `json:"status"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// handleCreateDatabase creates a new database record.
+func (s *Server) handleCreateDatabase(queries *store.Queries) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createDatabaseRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+		if req.Name == "" {
+			http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
+			return
+		}
+		if req.ConnectionType == "" {
+			req.ConnectionType = "tunnel"
+		}
+
+		var wsID pgtype.UUID
+		if err := wsID.Scan(req.WorkspaceID); err != nil {
+			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
+			return
+		}
+
+		row, err := queries.CreateDatabase(r.Context(), store.CreateDatabaseParams{
+			WorkspaceID:    wsID,
+			Name:           req.Name,
+			ConnectionType: req.ConnectionType,
+			Status:         "pending",
+		})
+		if err != nil {
+			s.logger.Error("failed to create database", slog.String("error", err.Error()))
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		resp := databaseResponse{
+			ID:             uuidToString(row.ID),
+			WorkspaceID:    uuidToString(row.WorkspaceID),
+			Name:           row.Name,
+			ConnectionType: row.ConnectionType,
+			Status:         row.Status,
+			CreatedAt:      formatTimestamptz(row.CreatedAt),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+// handleListDatabases lists databases for a workspace.
+func (s *Server) handleListDatabases(queries *store.Queries) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wsIDStr := r.URL.Query().Get("workspace_id")
+		if wsIDStr == "" {
+			http.Error(w, `{"error":"workspace_id query param required"}`, http.StatusBadRequest)
+			return
+		}
+
+		var wsID pgtype.UUID
+		if err := wsID.Scan(wsIDStr); err != nil {
+			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
+			return
+		}
+
+		rows, err := queries.ListDatabasesByWorkspace(r.Context(), wsID)
+		if err != nil {
+			s.logger.Error("failed to list databases", slog.String("error", err.Error()))
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		resp := make([]databaseResponse, 0, len(rows))
+		for _, row := range rows {
+			resp = append(resp, databaseResponse{
+				ID:             uuidToString(row.ID),
+				WorkspaceID:    uuidToString(row.WorkspaceID),
+				Name:           row.Name,
+				ConnectionType: row.ConnectionType,
+				Status:         row.Status,
+				CreatedAt:      formatTimestamptz(row.CreatedAt),
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+// handleDeleteDatabase deletes a database record.
+func (s *Server) handleDeleteDatabase(queries *store.Queries) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := chi.URLParam(r, "id")
+		wsIDStr := r.URL.Query().Get("workspace_id")
+
+		var id pgtype.UUID
+		if err := id.Scan(idStr); err != nil {
+			http.Error(w, `{"error":"invalid database id"}`, http.StatusBadRequest)
+			return
+		}
+
+		var wsID pgtype.UUID
+		if err := wsID.Scan(wsIDStr); err != nil {
+			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := queries.DeleteDatabase(r.Context(), store.DeleteDatabaseParams{
+			ID:          id,
+			WorkspaceID: wsID,
+		}); err != nil {
+			s.logger.Error("failed to delete database", slog.String("error", err.Error()))
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// --- API key → database linking endpoints ---
+
+type grantKeyDatabaseRequest struct {
+	DatabaseID string `json:"database_id"`
+}
+
+// handleGrantKeyDatabase links an API key to a database.
+func (s *Server) handleGrantKeyDatabase(queries *store.Queries) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		keyIDStr := chi.URLParam(r, "id")
+		var keyID pgtype.UUID
+		if err := keyID.Scan(keyIDStr); err != nil {
+			http.Error(w, `{"error":"invalid key id"}`, http.StatusBadRequest)
+			return
+		}
+
+		var req grantKeyDatabaseRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+
+		var dbID pgtype.UUID
+		if err := dbID.Scan(req.DatabaseID); err != nil {
+			http.Error(w, `{"error":"invalid database_id"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := queries.GrantAPIKeyDatabase(r.Context(), store.GrantAPIKeyDatabaseParams{
+			ApiKeyID:   keyID,
+			DatabaseID: dbID,
+		}); err != nil {
+			s.logger.Error("failed to grant key database", slog.String("error", err.Error()))
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleRevokeKeyDatabase unlinks an API key from a database.
+func (s *Server) handleRevokeKeyDatabase(queries *store.Queries) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		keyIDStr := chi.URLParam(r, "id")
+		dbIDStr := chi.URLParam(r, "db_id")
+
+		var keyID pgtype.UUID
+		if err := keyID.Scan(keyIDStr); err != nil {
+			http.Error(w, `{"error":"invalid key id"}`, http.StatusBadRequest)
+			return
+		}
+
+		var dbID pgtype.UUID
+		if err := dbID.Scan(dbIDStr); err != nil {
+			http.Error(w, `{"error":"invalid database id"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := queries.RevokeAPIKeyDatabase(r.Context(), store.RevokeAPIKeyDatabaseParams{
+			ApiKeyID:   keyID,
+			DatabaseID: dbID,
+		}); err != nil {
+			s.logger.Error("failed to revoke key database", slog.String("error", err.Error()))
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}

@@ -4,13 +4,23 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/store"
 )
 
+// AuthResult contains metadata from a successful authentication.
+// A nil result with nil error means the token was not found (invalid key).
+type AuthResult struct {
+	KeyID       uuid.UUID
+	WorkspaceID uuid.UUID
+	DatabaseIDs []uuid.UUID // databases this key has access to
+}
+
 // Authenticator validates a Bearer token from an incoming request.
 type Authenticator interface {
-	// Authenticate returns true if the token is valid.
-	Authenticate(ctx context.Context, token string) (bool, error)
+	// Authenticate validates the token and returns metadata about the key.
+	// Returns (nil, nil) when the token is not found.
+	Authenticate(ctx context.Context, token string) (*AuthResult, error)
 }
 
 // StaticAuthenticator validates tokens against an in-memory set of keys.
@@ -28,9 +38,18 @@ func NewStaticAuthenticator(keys []string) *StaticAuthenticator {
 	return &StaticAuthenticator{keys: keySet}
 }
 
+// StaticDatabaseID is a sentinel UUID used for the single tunnel in static-key mode.
+var StaticDatabaseID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
 // Authenticate checks if the token is in the static key set.
-func (a *StaticAuthenticator) Authenticate(_ context.Context, token string) (bool, error) {
-	return a.keys[token], nil
+// Returns a sentinel AuthResult with StaticDatabaseID for backwards compat.
+func (a *StaticAuthenticator) Authenticate(_ context.Context, token string) (*AuthResult, error) {
+	if !a.keys[token] {
+		return nil, nil
+	}
+	return &AuthResult{
+		DatabaseIDs: []uuid.UUID{StaticDatabaseID},
+	}, nil
 }
 
 // SupabaseAuthenticator validates tokens by hashing them and looking up the
@@ -48,16 +67,36 @@ func NewSupabaseAuthenticator(queries *store.Queries, logger *slog.Logger) *Supa
 	}
 }
 
-// Authenticate hashes the token, looks it up in the database, and updates
-// last_used_at on success.
-func (a *SupabaseAuthenticator) Authenticate(ctx context.Context, token string) (bool, error) {
+// Authenticate hashes the token, looks it up in the database, fetches the
+// associated databases, and updates last_used_at on success.
+func (a *SupabaseAuthenticator) Authenticate(ctx context.Context, token string) (*AuthResult, error) {
 	hash := HashKey(token)
 
 	row, err := a.queries.ValidateAPIKey(ctx, hash)
 	if err != nil {
 		// pgx returns no rows as an error — treat as "not found".
-		return false, nil
+		return nil, nil
 	}
+
+	// Look up which databases this key has access to.
+	dbRows, err := a.queries.GetAPIKeyDatabases(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	dbIDs := make([]uuid.UUID, 0, len(dbRows))
+	for _, dbRow := range dbRows {
+		if dbRow.ID.Valid {
+			id, err := uuid.FromBytes(dbRow.ID.Bytes[:])
+			if err != nil {
+				continue
+			}
+			dbIDs = append(dbIDs, id)
+		}
+	}
+
+	keyID, _ := uuid.FromBytes(row.ID.Bytes[:])
+	wsID, _ := uuid.FromBytes(row.WorkspaceID.Bytes[:])
 
 	// Fire-and-forget: update last_used_at asynchronously to avoid
 	// adding latency to the auth path.
@@ -69,5 +108,9 @@ func (a *SupabaseAuthenticator) Authenticate(ctx context.Context, token string) 
 		}
 	}()
 
-	return true, nil
+	return &AuthResult{
+		KeyID:       keyID,
+		WorkspaceID: wsID,
+		DatabaseIDs: dbIDs,
+	}, nil
 }

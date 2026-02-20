@@ -9,9 +9,14 @@ import (
 	"io"
 )
 
-// Encrypt encrypts plaintext using AES-256-GCM with the given hex-encoded key.
-// Returns nonce || ciphertext.
-func Encrypt(plaintext []byte, hexKey string) ([]byte, error) {
+// AESEncryptor provides AES-256-GCM encryption and decryption.
+// It implements ports.Encryptor for the Decrypt method.
+type AESEncryptor struct {
+	gcm cipher.AEAD
+}
+
+// NewAESEncryptor creates a new AESEncryptor from a hex-encoded 256-bit key.
+func NewAESEncryptor(hexKey string) (*AESEncryptor, error) {
 	key, err := hex.DecodeString(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("decoding encryption key: %w", err)
@@ -24,31 +29,25 @@ func Encrypt(plaintext []byte, hexKey string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating GCM: %w", err)
 	}
-	nonce := make([]byte, gcm.NonceSize())
+	return &AESEncryptor{gcm: gcm}, nil
+}
+
+// Encrypt encrypts plaintext using AES-256-GCM. Returns nonce || ciphertext.
+func (e *AESEncryptor) Encrypt(plaintext []byte) ([]byte, error) {
+	nonce := make([]byte, e.gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("generating nonce: %w", err)
 	}
-	return gcm.Seal(nonce, nonce, plaintext, nil), nil
+	return e.gcm.Seal(nonce, nonce, plaintext, nil), nil
 }
 
 // Decrypt decrypts ciphertext (nonce || ciphertext) using AES-256-GCM.
-func Decrypt(ciphertext []byte, hexKey string) ([]byte, error) {
-	key, err := hex.DecodeString(hexKey)
-	if err != nil {
-		return nil, fmt.Errorf("decoding encryption key: %w", err)
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("creating cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("creating GCM: %w", err)
-	}
-	nonceSize := gcm.NonceSize()
+// Implements ports.Encryptor.
+func (e *AESEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	nonceSize := e.gcm.NonceSize()
 	if len(ciphertext) < nonceSize {
 		return nil, fmt.Errorf("ciphertext too short")
 	}
 	nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	return gcm.Open(nil, nonce, ct, nil)
+	return e.gcm.Open(nil, nonce, ct, nil)
 }

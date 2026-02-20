@@ -14,13 +14,15 @@ import (
 	"github.com/pressly/goose/v3"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store/migrations"
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
-	"github.com/guillermoBallester/isthmus/internal/direct"
 	"github.com/guillermoBallester/isthmus/internal/server"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
+	"github.com/guillermoBallester/isthmus/pkg/app"
+	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -109,13 +111,26 @@ func run() error {
 	// MCPServer + Proxy. In static-key mode, uses StaticDatabaseID.
 	registry := itunnel.NewTunnelRegistry(authenticator, tunnelCfg, version, logger)
 
-	// DirectManager — manages direct database connections (no agent needed).
+	// Direct connection service — manages direct database connections (no agent needed).
 	// Only enabled when Supabase + encryption key are configured.
-	var directMgr *direct.Manager
+	var (
+		enc       *crypto.AESEncryptor
+		directSvc *service.DirectConnectionService
+	)
 	if queries != nil && cfg.EncryptionKey != "" {
-		directMgr = direct.NewManager(queries, cfg.EncryptionKey, version, logger)
-		defer directMgr.Close()
-		logger.Info("direct connection manager enabled")
+		var encErr error
+		enc, encErr = crypto.NewAESEncryptor(cfg.EncryptionKey)
+		if encErr != nil {
+			return fmt.Errorf("creating encryptor: %w", encErr)
+		}
+
+		repo := store.NewDatabaseRepository(queries)
+		mcpFactory := func(explorer *service.ExplorerService, query *service.QueryService) *mcpserver.MCPServer {
+			return app.NewServer(version, explorer, query, logger)
+		}
+		directSvc = service.NewDirectConnectionService(repo, enc, mcpFactory, logger)
+		defer directSvc.Close()
+		logger.Info("direct connection service enabled")
 	}
 
 	// Cloud MCPServer — used as fallback for static-key mode only.
@@ -131,10 +146,10 @@ func run() error {
 	}
 
 	// HTTP server with chi routing and middleware.
-	srv := server.New(cfg.ListenAddr, registry, directMgr, mcpSrv, authenticator, config.HTTPConfig{
+	srv := server.New(cfg.ListenAddr, registry, directSvc, mcpSrv, authenticator, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, queries, cfg.AdminSecret, cfg.CORSOrigin, cfg.EncryptionKey, webhookHandler, logger)
+	}, queries, enc, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {

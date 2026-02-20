@@ -6,15 +6,15 @@ import (
 	"strings"
 
 	"github.com/guillermoBallester/isthmus/internal/auth"
-	"github.com/guillermoBallester/isthmus/internal/direct"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
+	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // handleMCP returns an HTTP handler that authenticates MCP clients using API keys
 // and routes requests to the correct per-database MCPServer. Checks the tunnel
 // registry first (agent-backed), then falls back to direct connections.
-func (s *Server) handleMCP(registry *itunnel.TunnelRegistry, directMgr *direct.Manager, authenticator auth.Authenticator) http.HandlerFunc {
+func (s *Server) handleMCP(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, authenticator auth.Authenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract Bearer token.
 		header := r.Header.Get("Authorization")
@@ -50,8 +50,8 @@ func (s *Server) handleMCP(registry *itunnel.TunnelRegistry, directMgr *direct.M
 
 		// Look up per-database MCPServer: tunnel first, then direct.
 		mcpSrv := registry.GetMCPServer(databaseID)
-		if mcpSrv == nil && directMgr != nil {
-			mcpSrv, err = directMgr.GetMCPServer(r.Context(), databaseID)
+		if mcpSrv == nil && directSvc != nil {
+			mcpSrv, err = directSvc.GetMCPServer(r.Context(), databaseID)
 			if err != nil {
 				s.logger.Error("direct connection failed",
 					slog.String("database_id", databaseID.String()),

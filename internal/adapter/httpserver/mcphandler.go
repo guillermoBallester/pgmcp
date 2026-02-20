@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/guillermoBallester/isthmus/internal/auth"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -14,7 +14,7 @@ import (
 // handleMCP returns an HTTP handler that authenticates MCP clients using API keys
 // and routes requests to the correct per-database MCPServer. Checks the tunnel
 // registry first (agent-backed), then falls back to direct connections.
-func (s *Server) handleMCP(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, authenticator auth.Authenticator) http.HandlerFunc {
+func (s *Server) handleMCP(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, authenticator port.Authenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract Bearer token.
 		header := r.Header.Get("Authorization")

@@ -12,7 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
-	"github.com/guillermoBallester/isthmus/internal/auth"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/protocol"
 	"github.com/hashicorp/yamux"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -33,7 +33,7 @@ type tunnelEntry struct {
 // TunnelRegistry manages multiple simultaneous agent tunnels keyed by database ID.
 type TunnelRegistry struct {
 	logger        *slog.Logger
-	authenticator auth.Authenticator
+	authenticator port.Authenticator
 	cfg           protocol.ServerTunnelConfig
 	serverVersion string
 
@@ -42,7 +42,7 @@ type TunnelRegistry struct {
 }
 
 // NewTunnelRegistry creates a new multi-tunnel registry.
-func NewTunnelRegistry(authenticator auth.Authenticator, cfg protocol.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelRegistry {
+func NewTunnelRegistry(authenticator port.Authenticator, cfg protocol.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelRegistry {
 	return &TunnelRegistry{
 		logger:        logger,
 		authenticator: authenticator,
@@ -297,7 +297,7 @@ func (r *TunnelRegistry) performHandshake(session *yamux.Session) (*protocol.Han
 	return ack, nil
 }
 
-func (r *TunnelRegistry) authenticate(req *http.Request) *auth.AuthResult {
+func (r *TunnelRegistry) authenticate(req *http.Request) *port.AuthResult {
 	header := req.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
 		return nil

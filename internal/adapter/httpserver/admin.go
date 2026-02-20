@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
+	"github.com/guillermoBallester/isthmus/internal/adapter/auth"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
-	"github.com/guillermoBallester/isthmus/internal/auth"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -230,7 +230,7 @@ type databaseResponse struct {
 
 // handleCreateDatabase creates a new database record.
 // For direct connections, encrypts and stores the connection URL.
-func (s *Server) handleCreateDatabase(queries *store.Queries, enc *crypto.AESEncryptor) http.HandlerFunc {
+func (s *Server) handleCreateDatabase(queries *store.Queries, enc port.Encryptor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createDatabaseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

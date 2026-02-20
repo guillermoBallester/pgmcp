@@ -14,12 +14,12 @@ import (
 	"github.com/pressly/goose/v3"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/guillermoBallester/isthmus/internal/adapter/auth"
 	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/httpserver"
 	"github.com/guillermoBallester/isthmus/internal/adapter/mcp"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store/migrations"
-	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
 	"github.com/guillermoBallester/isthmus/internal/protocol"
@@ -69,7 +69,7 @@ func run() error {
 	logger.Info("database migrations applied")
 
 	queries := store.New(pool)
-	authenticator := auth.NewSupabaseAuthenticator(queries, logger)
+	authenticator := auth.NewAuthenticator(queries, logger)
 
 	// Tunnel config.
 	tunnelCfg := protocol.ServerTunnelConfig{

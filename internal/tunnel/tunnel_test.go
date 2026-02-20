@@ -16,9 +16,9 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/guillermoBallester/isthmus/internal/agent"
 	"github.com/guillermoBallester/isthmus/internal/auth"
-	"github.com/guillermoBallester/isthmus/pkg/tunnel"
-	"github.com/guillermoBallester/isthmus/pkg/tunnel/agent"
+	"github.com/guillermoBallester/isthmus/internal/protocol"
 	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -111,23 +111,23 @@ func newSlowEchoMCPServer(delay time.Duration) *server.MCPServer {
 	return s
 }
 
-func testYamuxConfig() tunnel.YamuxConfig {
-	return tunnel.YamuxConfig{
+func testYamuxConfig() protocol.YamuxConfig {
+	return protocol.YamuxConfig{
 		KeepAliveInterval:      15 * time.Second,
 		ConnectionWriteTimeout: 10 * time.Second,
 	}
 }
 
-func testHeartbeatConfig() tunnel.HeartbeatConfig {
-	return tunnel.HeartbeatConfig{
+func testHeartbeatConfig() protocol.HeartbeatConfig {
+	return protocol.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
 	}
 }
 
-func testAgentTunnelConfig() tunnel.AgentTunnelConfig {
-	return tunnel.AgentTunnelConfig{
+func testAgentTunnelConfig() protocol.AgentTunnelConfig {
+	return protocol.AgentTunnelConfig{
 		SessionTTL:             10 * time.Minute,
 		SessionCleanupInterval: 1 * time.Minute,
 		InitialBackoff:         1 * time.Second,
@@ -137,8 +137,8 @@ func testAgentTunnelConfig() tunnel.AgentTunnelConfig {
 	}
 }
 
-func testServerTunnelConfig(hbCfg tunnel.HeartbeatConfig) tunnel.ServerTunnelConfig {
-	return tunnel.ServerTunnelConfig{
+func testServerTunnelConfig(hbCfg protocol.HeartbeatConfig) protocol.ServerTunnelConfig {
+	return protocol.ServerTunnelConfig{
 		Heartbeat:        hbCfg,
 		HandshakeTimeout: 10 * time.Second,
 		Yamux:            testYamuxConfig(),
@@ -146,7 +146,7 @@ func testServerTunnelConfig(hbCfg tunnel.HeartbeatConfig) tunnel.ServerTunnelCon
 }
 
 // setupRegistry creates a TunnelRegistry + agent for testing with multi-tenant flow.
-func setupRegistry(t *testing.T, agentMCP *server.MCPServer, hbCfg tunnel.HeartbeatConfig) (*agent.Agent, *TunnelRegistry, *httptest.Server) {
+func setupRegistry(t *testing.T, agentMCP *server.MCPServer, hbCfg protocol.HeartbeatConfig) (*agent.Agent, *TunnelRegistry, *httptest.Server) {
 	t.Helper()
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
@@ -166,7 +166,7 @@ func setupRegistry(t *testing.T, agentMCP *server.MCPServer, hbCfg tunnel.Heartb
 }
 
 // setupRegistryWithAgentConfig is like setupRegistry but accepts a custom AgentTunnelConfig.
-func setupRegistryWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg tunnel.HeartbeatConfig, agentCfg tunnel.AgentTunnelConfig) (*agent.Agent, *TunnelRegistry, *httptest.Server) {
+func setupRegistryWithAgentConfig(t *testing.T, agentMCP *server.MCPServer, hbCfg protocol.HeartbeatConfig, agentCfg protocol.AgentTunnelConfig) (*agent.Agent, *TunnelRegistry, *httptest.Server) {
 	t.Helper()
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
@@ -388,7 +388,7 @@ func TestTunnelMultipleConcurrentCalls(t *testing.T) {
 }
 
 func TestNewYamuxConfig(t *testing.T) {
-	cfg := tunnel.NewYamuxConfig(tunnel.YamuxConfig{
+	cfg := protocol.NewYamuxConfig(protocol.YamuxConfig{
 		KeepAliveInterval:      15 * time.Second,
 		ConnectionWriteTimeout: 10 * time.Second,
 	})
@@ -403,7 +403,7 @@ func TestSessionTTLEviction(t *testing.T) {
 	agentCfg := testAgentTunnelConfig()
 	agentCfg.SessionTTL = 50 * time.Millisecond
 
-	ag, registry, _ := setupRegistryWithAgentConfig(t, agentMCP, tunnel.HeartbeatConfig{
+	ag, registry, _ := setupRegistryWithAgentConfig(t, agentMCP, protocol.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -440,7 +440,7 @@ func TestSessionTTLEviction(t *testing.T) {
 // TestSessionClearedOnReconnect verifies sessions are cleared on agent reconnect.
 func TestSessionClearedOnReconnect(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	ag, registry, _ := setupRegistry(t, agentMCP, tunnel.HeartbeatConfig{
+	ag, registry, _ := setupRegistry(t, agentMCP, protocol.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -486,7 +486,7 @@ func TestSessionClearedOnReconnect(t *testing.T) {
 // TestHeartbeatPingPong verifies heartbeats work via TunnelRegistry.
 func TestHeartbeatPingPong(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	ag, registry, _ := setupRegistry(t, agentMCP, tunnel.HeartbeatConfig{
+	ag, registry, _ := setupRegistry(t, agentMCP, protocol.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -511,7 +511,7 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 	logger := newTestLogger(t)
 	apiKey := "test-secret"
 
-	registry := NewTunnelRegistry(newStaticAuth(apiKey), testServerTunnelConfig(tunnel.HeartbeatConfig{
+	registry := NewTunnelRegistry(newStaticAuth(apiKey), testServerTunnelConfig(protocol.HeartbeatConfig{
 		Interval:      50 * time.Millisecond,
 		Timeout:       50 * time.Millisecond,
 		MissThreshold: 2,
@@ -551,7 +551,7 @@ func TestHeartbeatDetectsDeadAgent(t *testing.T) {
 // TestGracefulShutdownDrainsHandlers verifies in-flight calls complete during shutdown.
 func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 	agentMCP := newSlowEchoMCPServer(200 * time.Millisecond)
-	ag, registry, _ := setupRegistry(t, agentMCP, tunnel.HeartbeatConfig{
+	ag, registry, _ := setupRegistry(t, agentMCP, protocol.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -595,7 +595,7 @@ func TestGracefulShutdownDrainsHandlers(t *testing.T) {
 // TestGracefulShutdownTimeout verifies Shutdown returns context.DeadlineExceeded when drain takes too long.
 func TestGracefulShutdownTimeout(t *testing.T) {
 	agentMCP := newSlowEchoMCPServer(500 * time.Millisecond)
-	ag, registry, _ := setupRegistry(t, agentMCP, tunnel.HeartbeatConfig{
+	ag, registry, _ := setupRegistry(t, agentMCP, protocol.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -630,7 +630,7 @@ func TestGracefulShutdownTimeout(t *testing.T) {
 // TestPongReportsDraining verifies pong responses include Draining=true after agent starts draining.
 func TestPongReportsDraining(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	ag, registry, _ := setupRegistry(t, agentMCP, tunnel.HeartbeatConfig{
+	ag, registry, _ := setupRegistry(t, agentMCP, protocol.HeartbeatConfig{
 		Interval:      10 * time.Second,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -664,7 +664,7 @@ func TestPongReportsDraining(t *testing.T) {
 // TestHeartbeatConcurrentWithCalls verifies heartbeats and tool calls run concurrently.
 func TestHeartbeatConcurrentWithCalls(t *testing.T) {
 	agentMCP := newAgentMCPServer()
-	ag, registry, _ := setupRegistry(t, agentMCP, tunnel.HeartbeatConfig{
+	ag, registry, _ := setupRegistry(t, agentMCP, protocol.HeartbeatConfig{
 		Interval:      100 * time.Millisecond,
 		Timeout:       5 * time.Second,
 		MissThreshold: 3,
@@ -770,16 +770,16 @@ func TestHandshakeVersionMismatch(t *testing.T) {
 		}
 		defer stream.Close() //nolint:errcheck
 
-		h := &tunnel.Handshake{
+		h := &protocol.Handshake{
 			ProtocolVersion: 99,
 			ServerVersion:   "0.1.0",
 		}
-		if err := tunnel.WriteHandshake(stream, h); err != nil {
+		if err := protocol.WriteHandshake(stream, h); err != nil {
 			t.Errorf("write handshake: %v", err)
 			return
 		}
 
-		ack, err := tunnel.ReadHandshakeAck(stream)
+		ack, err := protocol.ReadHandshakeAck(stream)
 		if err != nil {
 			t.Errorf("read handshake ack: %v", err)
 			return

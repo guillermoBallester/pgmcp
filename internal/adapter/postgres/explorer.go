@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/guillermoBallester/isthmus/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -33,7 +33,7 @@ func (e *Explorer) schemaFilter(column string, paramOffset int) (clause string, 
 	return fmt.Sprintf("%s IN (%s)", column, strings.Join(placeholders, ", ")), args
 }
 
-func (e *Explorer) ListSchemas(ctx context.Context) ([]ports.SchemaInfo, error) {
+func (e *Explorer) ListSchemas(ctx context.Context) ([]port.SchemaInfo, error) {
 	filter, args := e.schemaFilter("s.schema_name", 1)
 	query := fmt.Sprintf(queryListSchemas, filter)
 
@@ -43,9 +43,9 @@ func (e *Explorer) ListSchemas(ctx context.Context) ([]ports.SchemaInfo, error) 
 	}
 	defer rows.Close()
 
-	var schemas []ports.SchemaInfo
+	var schemas []port.SchemaInfo
 	for rows.Next() {
-		var s ports.SchemaInfo
+		var s port.SchemaInfo
 		if err := rows.Scan(&s.Name); err != nil {
 			return nil, fmt.Errorf("scanning schema row: %w", err)
 		}
@@ -54,7 +54,7 @@ func (e *Explorer) ListSchemas(ctx context.Context) ([]ports.SchemaInfo, error) 
 	return schemas, rows.Err()
 }
 
-func (e *Explorer) ListTables(ctx context.Context) ([]ports.TableInfo, error) {
+func (e *Explorer) ListTables(ctx context.Context) ([]port.TableInfo, error) {
 	filter, args := e.schemaFilter("t.table_schema", 1)
 	query := fmt.Sprintf(queryListTables, filter)
 
@@ -64,9 +64,9 @@ func (e *Explorer) ListTables(ctx context.Context) ([]ports.TableInfo, error) {
 	}
 	defer rows.Close()
 
-	var tables []ports.TableInfo
+	var tables []port.TableInfo
 	for rows.Next() {
-		var t ports.TableInfo
+		var t port.TableInfo
 		if err := rows.Scan(&t.Schema, &t.Name, &t.Type, &t.RowEstimate, &t.Comment); err != nil {
 			return nil, fmt.Errorf("scanning table row: %w", err)
 		}
@@ -75,8 +75,8 @@ func (e *Explorer) ListTables(ctx context.Context) ([]ports.TableInfo, error) {
 	return tables, rows.Err()
 }
 
-func (e *Explorer) DescribeTable(ctx context.Context, schema, tableName string) (*ports.TableDetail, error) {
-	detail := &ports.TableDetail{Name: tableName}
+func (e *Explorer) DescribeTable(ctx context.Context, schema, tableName string) (*port.TableDetail, error) {
+	detail := &port.TableDetail{Name: tableName}
 
 	var err error
 	if schema != "" {

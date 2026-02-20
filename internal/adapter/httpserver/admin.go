@@ -1,4 +1,4 @@
-package server
+package httpserver
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/auth"
-	"github.com/guillermoBallester/isthmus/pkg/core/service"
+	"github.com/guillermoBallester/isthmus/internal/core/service"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 

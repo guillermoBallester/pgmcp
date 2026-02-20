@@ -1,4 +1,4 @@
-package server
+package httpserver
 
 import (
 	"log/slog"
@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/guillermoBallester/isthmus/internal/auth"
+	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
-	"github.com/guillermoBallester/isthmus/pkg/core/service"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/guillermoBallester/isthmus/pkg/tunnel"
+	"github.com/guillermoBallester/isthmus/internal/protocol"
 	"github.com/hashicorp/yamux"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -48,7 +48,7 @@ const defaultDiscoveryTimeout = 30 * time.Second
 type Proxy struct {
 	session   *yamux.Session
 	mcpServer *server.MCPServer
-	cfg       tunnel.ServerTunnelConfig
+	cfg       protocol.ServerTunnelConfig
 	logger    *slog.Logger
 
 	mu         sync.Mutex
@@ -57,7 +57,7 @@ type Proxy struct {
 }
 
 // NewProxy creates a new proxy that bridges a yamux session and an MCPServer.
-func NewProxy(session *yamux.Session, mcpServer *server.MCPServer, cfg tunnel.ServerTunnelConfig, logger *slog.Logger) *Proxy {
+func NewProxy(session *yamux.Session, mcpServer *server.MCPServer, cfg protocol.ServerTunnelConfig, logger *slog.Logger) *Proxy {
 	return &Proxy{
 		session:   session,
 		mcpServer: mcpServer,
@@ -94,7 +94,7 @@ func (p *Proxy) discoveryTimeout() time.Duration {
 func (p *Proxy) DiscoverAndRegister() error {
 	p.logger.Info("discovering tools from agent")
 
-	// Send a tools/list request through the tunnel.
+	// Send a tools/list request through the
 	listReq := jsonRPCRequest{
 		JSONRPC: "2.0",
 		ID:      p.nextRequestID(),
@@ -164,15 +164,15 @@ func (p *Proxy) forwardCall(ctx context.Context, sessionID string, payload json.
 	}
 	defer stream.Close() //nolint:errcheck // best-effort cleanup
 
-	req := tunnel.Request{
+	req := protocol.Request{
 		SessionID: sessionID,
 		Payload:   payload,
 	}
-	if err := tunnel.WriteRequest(stream, &req); err != nil {
+	if err := protocol.WriteRequest(stream, &req); err != nil {
 		return nil, fmt.Errorf("write tunnel request: %w", err)
 	}
 
-	resp, err := tunnel.ReadResponse(stream)
+	resp, err := protocol.ReadResponse(stream)
 	if err != nil {
 		return nil, fmt.Errorf("read tunnel response: %w", err)
 	}

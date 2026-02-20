@@ -13,7 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/auth"
-	"github.com/guillermoBallester/isthmus/pkg/tunnel"
+	"github.com/guillermoBallester/isthmus/internal/protocol"
 	"github.com/hashicorp/yamux"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -34,7 +34,7 @@ type tunnelEntry struct {
 type TunnelRegistry struct {
 	logger        *slog.Logger
 	authenticator auth.Authenticator
-	cfg           tunnel.ServerTunnelConfig
+	cfg           protocol.ServerTunnelConfig
 	serverVersion string
 
 	mu      sync.RWMutex
@@ -42,7 +42,7 @@ type TunnelRegistry struct {
 }
 
 // NewTunnelRegistry creates a new multi-tunnel registry.
-func NewTunnelRegistry(authenticator auth.Authenticator, cfg tunnel.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelRegistry {
+func NewTunnelRegistry(authenticator auth.Authenticator, cfg protocol.ServerTunnelConfig, serverVersion string, logger *slog.Logger) *TunnelRegistry {
 	return &TunnelRegistry{
 		logger:        logger,
 		authenticator: authenticator,
@@ -100,7 +100,7 @@ func (r *TunnelRegistry) HandleTunnel(w http.ResponseWriter, req *http.Request) 
 
 	databaseID := authResult.DatabaseIDs[0]
 
-	// Check for duplicate tunnel.
+	// Check for duplicate
 	r.mu.RLock()
 	_, exists := r.tunnels[databaseID]
 	r.mu.RUnlock()
@@ -119,7 +119,7 @@ func (r *TunnelRegistry) HandleTunnel(w http.ResponseWriter, req *http.Request) 
 	netConn := websocket.NetConn(req.Context(), wsConn, websocket.MessageBinary)
 
 	// Cloud server is yamux CLIENT — it opens streams to the agent.
-	session, err := yamux.Client(netConn, tunnel.NewYamuxConfig(r.cfg.Yamux))
+	session, err := yamux.Client(netConn, protocol.NewYamuxConfig(r.cfg.Yamux))
 	if err != nil {
 		r.logger.Error("yamux client creation failed", slog.String("error", err.Error()))
 		return
@@ -254,12 +254,12 @@ func (r *TunnelRegistry) sendPing(session *yamux.Session) (rtt time.Duration, dr
 	}
 
 	now := time.Now()
-	ping := &tunnel.Ping{Timestamp: now.UnixNano()}
-	if err := tunnel.WritePing(stream, ping); err != nil {
+	ping := &protocol.Ping{Timestamp: now.UnixNano()}
+	if err := protocol.WritePing(stream, ping); err != nil {
 		return 0, false, fmt.Errorf("write ping: %w", err)
 	}
 
-	pong, err := tunnel.ReadPong(stream)
+	pong, err := protocol.ReadPong(stream)
 	if err != nil {
 		return 0, false, fmt.Errorf("read pong: %w", err)
 	}
@@ -269,7 +269,7 @@ func (r *TunnelRegistry) sendPing(session *yamux.Session) (rtt time.Duration, dr
 }
 
 // performHandshake opens a yamux stream, writes a Handshake, and reads a HandshakeAck.
-func (r *TunnelRegistry) performHandshake(session *yamux.Session) (*tunnel.HandshakeAck, error) {
+func (r *TunnelRegistry) performHandshake(session *yamux.Session) (*protocol.HandshakeAck, error) {
 	stream, err := session.Open()
 	if err != nil {
 		return nil, fmt.Errorf("open handshake stream: %w", err)
@@ -281,15 +281,15 @@ func (r *TunnelRegistry) performHandshake(session *yamux.Session) (*tunnel.Hands
 		return nil, fmt.Errorf("set handshake deadline: %w", err)
 	}
 
-	h := &tunnel.Handshake{
-		ProtocolVersion: tunnel.ProtocolVersion,
+	h := &protocol.Handshake{
+		ProtocolVersion: protocol.ProtocolVersion,
 		ServerVersion:   r.serverVersion,
 	}
-	if err := tunnel.WriteHandshake(stream, h); err != nil {
+	if err := protocol.WriteHandshake(stream, h); err != nil {
 		return nil, fmt.Errorf("write handshake: %w", err)
 	}
 
-	ack, err := tunnel.ReadHandshakeAck(stream)
+	ack, err := protocol.ReadHandshakeAck(stream)
 	if err != nil {
 		return nil, fmt.Errorf("read handshake ack: %w", err)
 	}

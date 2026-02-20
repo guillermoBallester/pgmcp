@@ -15,15 +15,15 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
+	"github.com/guillermoBallester/isthmus/internal/adapter/httpserver"
+	"github.com/guillermoBallester/isthmus/internal/adapter/mcp"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store/migrations"
 	"github.com/guillermoBallester/isthmus/internal/auth"
 	"github.com/guillermoBallester/isthmus/internal/config"
-	"github.com/guillermoBallester/isthmus/internal/server"
+	"github.com/guillermoBallester/isthmus/internal/core/service"
+	"github.com/guillermoBallester/isthmus/internal/protocol"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
-	"github.com/guillermoBallester/isthmus/pkg/app"
-	"github.com/guillermoBallester/isthmus/pkg/core/service"
-	"github.com/guillermoBallester/isthmus/pkg/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
@@ -72,14 +72,14 @@ func run() error {
 	authenticator := auth.NewSupabaseAuthenticator(queries, logger)
 
 	// Tunnel config.
-	tunnelCfg := tunnel.ServerTunnelConfig{
-		Heartbeat: tunnel.HeartbeatConfig{
+	tunnelCfg := protocol.ServerTunnelConfig{
+		Heartbeat: protocol.HeartbeatConfig{
 			Interval:      cfg.HeartbeatInterval,
 			Timeout:       cfg.HeartbeatTimeout,
 			MissThreshold: cfg.HeartbeatMissThreshold,
 		},
 		HandshakeTimeout: cfg.HandshakeTimeout,
-		Yamux: tunnel.YamuxConfig{
+		Yamux: protocol.YamuxConfig{
 			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
 			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
 		},
@@ -103,7 +103,7 @@ func run() error {
 
 		repo := store.NewDatabaseRepository(queries)
 		mcpFactory := func(explorer *service.ExplorerService, query *service.QueryService) *mcpserver.MCPServer {
-			return app.NewServer(version, explorer, query, logger)
+			return mcp.NewServer(version, explorer, query, logger)
 		}
 		directSvc = service.NewDirectConnectionService(repo, enc, mcpFactory, logger)
 		defer directSvc.Close()
@@ -111,13 +111,13 @@ func run() error {
 	}
 
 	// Clerk webhook handler (optional).
-	var webhookHandler *server.WebhookHandler
+	var webhookHandler *httpserver.WebhookHandler
 	if cfg.ClerkWebhookSecret != "" {
-		webhookHandler = server.NewWebhookHandler(pool, queries, cfg.ClerkWebhookSecret, logger)
+		webhookHandler = httpserver.NewWebhookHandler(pool, queries, cfg.ClerkWebhookSecret, logger)
 	}
 
 	// HTTP server with chi routing and middleware.
-	srv := server.New(cfg.ListenAddr, registry, directSvc, authenticator, config.HTTPConfig{
+	srv := httpserver.New(cfg.ListenAddr, registry, directSvc, authenticator, config.HTTPConfig{
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 	}, queries, enc, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)

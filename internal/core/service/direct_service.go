@@ -13,8 +13,8 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/guillermoBallester/isthmus/internal/adapter/postgres"
-	"github.com/guillermoBallester/isthmus/pkg/core/domain"
-	"github.com/guillermoBallester/isthmus/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/internal/core/domain"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 )
 
 // Default safe limits for direct connections.
@@ -36,8 +36,8 @@ type directEntry struct {
 // on the first MCP request. It depends on ports for database record lookup and
 // decryption — no direct dependency on store or crypto packages.
 type DirectConnectionService struct {
-	repo       ports.DatabaseRepository
-	encryptor  ports.Encryptor
+	repo       port.DatabaseRepository
+	encryptor  port.Encryptor
 	mcpFactory MCPServerFactory
 	logger     *slog.Logger
 
@@ -48,8 +48,8 @@ type DirectConnectionService struct {
 
 // NewDirectConnectionService creates a new service.
 func NewDirectConnectionService(
-	repo ports.DatabaseRepository,
-	encryptor ports.Encryptor,
+	repo port.DatabaseRepository,
+	encryptor port.Encryptor,
 	mcpFactory MCPServerFactory,
 	logger *slog.Logger,
 ) *DirectConnectionService {

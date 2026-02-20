@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/guillermoBallester/isthmus/pkg/core/ports"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// DatabaseRepositoryAdapter implements ports.DatabaseRepository using sqlc-generated queries.
+// DatabaseRepositoryAdapter implements port.DatabaseRepository using sqlc-generated queries.
 type DatabaseRepositoryAdapter struct {
 	queries *Queries
 }
@@ -20,7 +20,7 @@ func NewDatabaseRepository(queries *Queries) *DatabaseRepositoryAdapter {
 }
 
 // GetDatabaseByID loads a database record by ID, converting from pgtype to domain types.
-func (a *DatabaseRepositoryAdapter) GetDatabaseByID(ctx context.Context, id uuid.UUID) (*ports.DatabaseRecord, error) {
+func (a *DatabaseRepositoryAdapter) GetDatabaseByID(ctx context.Context, id uuid.UUID) (*port.DatabaseRecord, error) {
 	var pgID pgtype.UUID
 	if err := pgID.Scan(id.String()); err != nil {
 		return nil, fmt.Errorf("invalid database id: %w", err)
@@ -31,7 +31,7 @@ func (a *DatabaseRepositoryAdapter) GetDatabaseByID(ctx context.Context, id uuid
 		return nil, fmt.Errorf("querying database: %w", err)
 	}
 
-	return &ports.DatabaseRecord{
+	return &port.DatabaseRecord{
 		ID:                     id,
 		Name:                   db.Name,
 		ConnectionType:         db.ConnectionType,

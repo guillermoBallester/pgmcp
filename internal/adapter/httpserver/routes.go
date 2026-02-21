@@ -6,13 +6,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 )
 
-func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, authenticator port.Authenticator, queries *store.Queries, enc port.Encryptor) {
+func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService, authenticator port.Authenticator, adminSvc *service.AdminService) {
 	r := chi.NewRouter()
 
 	// Global middleware stack
@@ -38,9 +37,9 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *servic
 
 	// Admin API
 	r.Route("/api", func(api chi.Router) {
-		if s.corsOrigin != "" {
+		if s.cfg.CORSOrigin != "" {
 			api.Use(cors.Handler(cors.Options{
-				AllowedOrigins:   []string{s.corsOrigin},
+				AllowedOrigins:   []string{s.cfg.CORSOrigin},
 				AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
 				AllowedHeaders:   []string{"Authorization", "Content-Type"},
 				AllowCredentials: false,
@@ -48,14 +47,14 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *servic
 			}))
 		}
 		api.Use(s.adminAuth)
-		api.Post("/keys", s.handleCreateKey(queries))
-		api.Get("/keys", s.handleListKeys(queries))
-		api.Delete("/keys/{id}", s.handleDeleteKey(queries))
-		api.Post("/keys/{id}/databases", s.handleGrantKeyDatabase(queries))
-		api.Delete("/keys/{id}/databases/{db_id}", s.handleRevokeKeyDatabase(queries))
-		api.Post("/databases", s.handleCreateDatabase(queries, enc))
-		api.Get("/databases", s.handleListDatabases(queries))
-		api.Delete("/databases/{id}", s.handleDeleteDatabase(queries, directSvc))
+		api.Post("/keys", s.handleCreateKey(adminSvc))
+		api.Get("/keys", s.handleListKeys(adminSvc))
+		api.Delete("/keys/{id}", s.handleDeleteKey(adminSvc))
+		api.Post("/keys/{id}/databases", s.handleGrantKeyDatabase(adminSvc))
+		api.Delete("/keys/{id}/databases/{db_id}", s.handleRevokeKeyDatabase(adminSvc))
+		api.Post("/databases", s.handleCreateDatabase(adminSvc))
+		api.Get("/databases", s.handleListDatabases(adminSvc))
+		api.Delete("/databases/{id}", s.handleDeleteDatabase(adminSvc))
 	})
 
 	s.router = r

@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/core/port"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // DatabaseRepositoryAdapter implements port.DatabaseRepository using sqlc-generated queries.
@@ -21,8 +20,8 @@ func NewDatabaseRepository(queries *Queries) *DatabaseRepositoryAdapter {
 
 // GetDatabaseByID loads a database record by ID, converting from pgtype to domain types.
 func (a *DatabaseRepositoryAdapter) GetDatabaseByID(ctx context.Context, id uuid.UUID) (*port.DatabaseRecord, error) {
-	var pgID pgtype.UUID
-	if err := pgID.Scan(id.String()); err != nil {
+	pgID, err := toPgUUID(id)
+	if err != nil {
 		return nil, fmt.Errorf("invalid database id: %w", err)
 	}
 
@@ -41,8 +40,8 @@ func (a *DatabaseRepositoryAdapter) GetDatabaseByID(ctx context.Context, id uuid
 
 // UpdateDatabaseStatus updates the status field of a database record.
 func (a *DatabaseRepositoryAdapter) UpdateDatabaseStatus(ctx context.Context, id uuid.UUID, status string) error {
-	var pgID pgtype.UUID
-	if err := pgID.Scan(id.String()); err != nil {
+	pgID, err := toPgUUID(id)
+	if err != nil {
 		return fmt.Errorf("invalid database id: %w", err)
 	}
 

@@ -5,47 +5,52 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guillermoBallester/isthmus/internal/adapter/store"
-	"github.com/guillermoBallester/isthmus/internal/config"
 	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 )
+
+// Config holds HTTP server configuration.
+type Config struct {
+	ListenAddr        string
+	AdminSecret       string
+	CORSOrigin        string
+	ReadHeaderTimeout time.Duration
+	IdleTimeout       time.Duration
+}
 
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.
 type Server struct {
 	httpServer     *http.Server
 	router         chi.Router
 	logger         *slog.Logger
-	adminSecret    string
-	corsOrigin     string
+	cfg            Config
 	webhookHandler *WebhookHandler
 }
 
-// New creates a new Server wired with the given tunnel registry and direct connection service.
-// Registry handles per-database agent tunnels, directSvc handles direct connections,
-// and authenticator is used for client-facing MCP auth routing.
-func New(listenAddr string, registry *itunnel.TunnelRegistry, directSvc *service.DirectConnectionService,
+// New creates a new Server wired with the given dependencies.
+func New(cfg Config, registry *itunnel.TunnelRegistry,
+	directSvc *service.DirectConnectionService,
 	authenticator port.Authenticator,
-	httpCfg config.HTTPConfig, queries *store.Queries, enc port.Encryptor,
-	adminSecret, corsOrigin string,
+	adminSvc *service.AdminService,
 	webhookHandler *WebhookHandler, logger *slog.Logger) *Server {
+
 	s := &Server{
 		logger:         logger,
-		adminSecret:    adminSecret,
-		corsOrigin:     corsOrigin,
+		cfg:            cfg,
 		webhookHandler: webhookHandler,
 	}
 
-	s.setupRoutes(registry, directSvc, authenticator, queries, enc)
+	s.setupRoutes(registry, directSvc, authenticator, adminSvc)
 
 	s.httpServer = &http.Server{
-		Addr:              listenAddr,
+		Addr:              cfg.ListenAddr,
 		Handler:           s.router,
-		ReadHeaderTimeout: httpCfg.ReadHeaderTimeout,
-		IdleTimeout:       httpCfg.IdleTimeout,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
 
 	return s

@@ -42,7 +42,7 @@ func (a *staticTestAuth) Authenticate(_ context.Context, token string) (*port.Au
 	for _, k := range a.keys {
 		if k == token {
 			return &port.AuthResult{
-				DatabaseIDs: []uuid.UUID{testDatabaseID},
+				DatabaseID: testDatabaseID,
 			}, nil
 		}
 	}

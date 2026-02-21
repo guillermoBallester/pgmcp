@@ -11,19 +11,13 @@ import (
 type ApiKey struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	DatabaseID  pgtype.UUID        `json:"database_id"`
 	Name        string             `json:"name"`
 	KeyPrefix   string             `json:"key_prefix"`
 	KeyHash     string             `json:"key_hash"`
-	CreatedBy   pgtype.UUID        `json:"created_by"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 	LastUsedAt  pgtype.Timestamptz `json:"last_used_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-}
-
-type ApiKeyDatabase struct {
-	ApiKeyID   pgtype.UUID        `json:"api_key_id"`
-	DatabaseID pgtype.UUID        `json:"database_id"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 type Database struct {

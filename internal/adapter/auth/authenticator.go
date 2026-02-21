@@ -24,8 +24,8 @@ func NewAuthenticator(queries *store.Queries, logger *slog.Logger) *Authenticato
 	}
 }
 
-// Authenticate hashes the token, looks it up in the database, fetches the
-// associated databases, and updates last_used_at on success.
+// Authenticate hashes the token, looks it up in the database, and returns
+// the key metadata including the single linked database.
 func (a *Authenticator) Authenticate(ctx context.Context, token string) (*port.AuthResult, error) {
 	hash := HashKey(token)
 
@@ -35,25 +35,13 @@ func (a *Authenticator) Authenticate(ctx context.Context, token string) (*port.A
 		return nil, nil
 	}
 
-	// Look up which databases this key has access to.
-	dbRows, err := a.queries.GetAPIKeyDatabases(ctx, row.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	dbIDs := make([]uuid.UUID, 0, len(dbRows))
-	for _, dbRow := range dbRows {
-		if dbRow.ID.Valid {
-			id, err := uuid.FromBytes(dbRow.ID.Bytes[:])
-			if err != nil {
-				continue
-			}
-			dbIDs = append(dbIDs, id)
-		}
-	}
-
 	keyID, _ := uuid.FromBytes(row.ID.Bytes[:])
 	wsID, _ := uuid.FromBytes(row.WorkspaceID.Bytes[:])
+
+	var dbID uuid.UUID
+	if row.DatabaseID.Valid {
+		dbID, _ = uuid.FromBytes(row.DatabaseID.Bytes[:])
+	}
 
 	// Fire-and-forget: update last_used_at asynchronously to avoid
 	// adding latency to the auth path.
@@ -68,6 +56,6 @@ func (a *Authenticator) Authenticate(ctx context.Context, token string) (*port.A
 	return &port.AuthResult{
 		KeyID:       keyID,
 		WorkspaceID: wsID,
-		DatabaseIDs: dbIDs,
+		DatabaseID:  dbID,
 	}, nil
 }

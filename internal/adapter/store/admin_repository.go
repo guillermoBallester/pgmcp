@@ -19,14 +19,20 @@ func NewAdminRepository(queries *Queries) *AdminRepositoryAdapter {
 	return &AdminRepositoryAdapter{queries: queries}
 }
 
-func (a *AdminRepositoryAdapter) CreateAPIKey(ctx context.Context, workspaceID uuid.UUID, keyHash, keyPrefix, name string) (*port.APIKeyRecord, error) {
+func (a *AdminRepositoryAdapter) CreateAPIKey(ctx context.Context, workspaceID, databaseID uuid.UUID, keyHash, keyPrefix, name string) (*port.APIKeyRecord, error) {
 	wsID, err := toPgUUID(workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid workspace_id: %w", err)
 	}
 
+	dbID, err := toPgUUID(databaseID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid database_id: %w", err)
+	}
+
 	row, err := a.queries.CreateAPIKey(ctx, CreateAPIKeyParams{
 		WorkspaceID: wsID,
+		DatabaseID:  dbID,
 		KeyHash:     keyHash,
 		KeyPrefix:   keyPrefix,
 		Name:        name,
@@ -40,6 +46,7 @@ func (a *AdminRepositoryAdapter) CreateAPIKey(ctx context.Context, workspaceID u
 		KeyPrefix:   row.KeyPrefix,
 		Name:        row.Name,
 		WorkspaceID: fromPgUUID(row.WorkspaceID),
+		DatabaseID:  fromPgUUID(row.DatabaseID),
 		CreatedAt:   row.CreatedAt.Time,
 	}, nil
 }
@@ -58,10 +65,11 @@ func (a *AdminRepositoryAdapter) ListAPIKeys(ctx context.Context, workspaceID uu
 	result := make([]port.APIKeyRecord, 0, len(rows))
 	for _, row := range rows {
 		rec := port.APIKeyRecord{
-			ID:        fromPgUUID(row.ID),
-			KeyPrefix: row.KeyPrefix,
-			Name:      row.Name,
-			CreatedAt: row.CreatedAt.Time,
+			ID:         fromPgUUID(row.ID),
+			KeyPrefix:  row.KeyPrefix,
+			Name:       row.Name,
+			DatabaseID: fromPgUUID(row.DatabaseID),
+			CreatedAt:  row.CreatedAt.Time,
 		}
 		if row.ExpiresAt.Valid {
 			t := row.ExpiresAt.Time
@@ -178,38 +186,6 @@ func (a *AdminRepositoryAdapter) DeleteDatabase(ctx context.Context, id, workspa
 	return a.queries.DeleteDatabase(ctx, DeleteDatabaseParams{
 		ID:          pgID,
 		WorkspaceID: wsID,
-	})
-}
-
-func (a *AdminRepositoryAdapter) GrantKeyDatabase(ctx context.Context, keyID, databaseID uuid.UUID) error {
-	pgKeyID, err := toPgUUID(keyID)
-	if err != nil {
-		return fmt.Errorf("invalid key id: %w", err)
-	}
-	pgDBID, err := toPgUUID(databaseID)
-	if err != nil {
-		return fmt.Errorf("invalid database id: %w", err)
-	}
-
-	return a.queries.GrantAPIKeyDatabase(ctx, GrantAPIKeyDatabaseParams{
-		ApiKeyID:   pgKeyID,
-		DatabaseID: pgDBID,
-	})
-}
-
-func (a *AdminRepositoryAdapter) RevokeKeyDatabase(ctx context.Context, keyID, databaseID uuid.UUID) error {
-	pgKeyID, err := toPgUUID(keyID)
-	if err != nil {
-		return fmt.Errorf("invalid key id: %w", err)
-	}
-	pgDBID, err := toPgUUID(databaseID)
-	if err != nil {
-		return fmt.Errorf("invalid database id: %w", err)
-	}
-
-	return a.queries.RevokeAPIKeyDatabase(ctx, RevokeAPIKeyDatabaseParams{
-		ApiKeyID:   pgKeyID,
-		DatabaseID: pgDBID,
 	})
 }
 

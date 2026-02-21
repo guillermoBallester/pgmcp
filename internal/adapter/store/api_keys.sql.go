@@ -12,23 +12,23 @@ import (
 )
 
 const createAPIKey = `-- name: CreateAPIKey :one
-INSERT INTO api_keys (workspace_id, key_hash, key_prefix, name, created_by, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, key_prefix, name, created_at
+INSERT INTO api_keys (workspace_id, database_id, key_hash, key_prefix, name)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, workspace_id, database_id, key_prefix, name, created_at
 `
 
 type CreateAPIKeyParams struct {
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	KeyHash     string             `json:"key_hash"`
-	KeyPrefix   string             `json:"key_prefix"`
-	Name        string             `json:"name"`
-	CreatedBy   pgtype.UUID        `json:"created_by"`
-	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	DatabaseID  pgtype.UUID `json:"database_id"`
+	KeyHash     string      `json:"key_hash"`
+	KeyPrefix   string      `json:"key_prefix"`
+	Name        string      `json:"name"`
 }
 
 type CreateAPIKeyRow struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	DatabaseID  pgtype.UUID        `json:"database_id"`
 	KeyPrefix   string             `json:"key_prefix"`
 	Name        string             `json:"name"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
@@ -37,16 +37,16 @@ type CreateAPIKeyRow struct {
 func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, createAPIKey,
 		arg.WorkspaceID,
+		arg.DatabaseID,
 		arg.KeyHash,
 		arg.KeyPrefix,
 		arg.Name,
-		arg.CreatedBy,
-		arg.ExpiresAt,
 	)
 	var i CreateAPIKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.DatabaseID,
 		&i.KeyPrefix,
 		&i.Name,
 		&i.CreatedAt,
@@ -68,63 +68,8 @@ func (q *Queries) DeleteAPIKey(ctx context.Context, arg DeleteAPIKeyParams) erro
 	return err
 }
 
-const getAPIKeyDatabases = `-- name: GetAPIKeyDatabases :many
-SELECT d.id, d.name, d.connection_type, d.status
-FROM api_key_databases akd
-JOIN databases d ON d.id = akd.database_id
-WHERE akd.api_key_id = $1
-`
-
-type GetAPIKeyDatabasesRow struct {
-	ID             pgtype.UUID `json:"id"`
-	Name           string      `json:"name"`
-	ConnectionType string      `json:"connection_type"`
-	Status         string      `json:"status"`
-}
-
-func (q *Queries) GetAPIKeyDatabases(ctx context.Context, apiKeyID pgtype.UUID) ([]GetAPIKeyDatabasesRow, error) {
-	rows, err := q.db.Query(ctx, getAPIKeyDatabases, apiKeyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GetAPIKeyDatabasesRow{}
-	for rows.Next() {
-		var i GetAPIKeyDatabasesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.ConnectionType,
-			&i.Status,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const grantAPIKeyDatabase = `-- name: GrantAPIKeyDatabase :exec
-INSERT INTO api_key_databases (api_key_id, database_id)
-VALUES ($1, $2)
-ON CONFLICT DO NOTHING
-`
-
-type GrantAPIKeyDatabaseParams struct {
-	ApiKeyID   pgtype.UUID `json:"api_key_id"`
-	DatabaseID pgtype.UUID `json:"database_id"`
-}
-
-func (q *Queries) GrantAPIKeyDatabase(ctx context.Context, arg GrantAPIKeyDatabaseParams) error {
-	_, err := q.db.Exec(ctx, grantAPIKeyDatabase, arg.ApiKeyID, arg.DatabaseID)
-	return err
-}
-
 const listAPIKeysByWorkspace = `-- name: ListAPIKeysByWorkspace :many
-SELECT id, key_prefix, name, created_by, expires_at, last_used_at, created_at
+SELECT id, key_prefix, name, database_id, expires_at, last_used_at, created_at
 FROM api_keys
 WHERE workspace_id = $1
 ORDER BY created_at DESC
@@ -134,7 +79,7 @@ type ListAPIKeysByWorkspaceRow struct {
 	ID         pgtype.UUID        `json:"id"`
 	KeyPrefix  string             `json:"key_prefix"`
 	Name       string             `json:"name"`
-	CreatedBy  pgtype.UUID        `json:"created_by"`
+	DatabaseID pgtype.UUID        `json:"database_id"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
@@ -153,7 +98,7 @@ func (q *Queries) ListAPIKeysByWorkspace(ctx context.Context, workspaceID pgtype
 			&i.ID,
 			&i.KeyPrefix,
 			&i.Name,
-			&i.CreatedBy,
+			&i.DatabaseID,
 			&i.ExpiresAt,
 			&i.LastUsedAt,
 			&i.CreatedAt,
@@ -168,20 +113,6 @@ func (q *Queries) ListAPIKeysByWorkspace(ctx context.Context, workspaceID pgtype
 	return items, nil
 }
 
-const revokeAPIKeyDatabase = `-- name: RevokeAPIKeyDatabase :exec
-DELETE FROM api_key_databases WHERE api_key_id = $1 AND database_id = $2
-`
-
-type RevokeAPIKeyDatabaseParams struct {
-	ApiKeyID   pgtype.UUID `json:"api_key_id"`
-	DatabaseID pgtype.UUID `json:"database_id"`
-}
-
-func (q *Queries) RevokeAPIKeyDatabase(ctx context.Context, arg RevokeAPIKeyDatabaseParams) error {
-	_, err := q.db.Exec(ctx, revokeAPIKeyDatabase, arg.ApiKeyID, arg.DatabaseID)
-	return err
-}
-
 const touchAPIKeyLastUsed = `-- name: TouchAPIKeyLastUsed :exec
 UPDATE api_keys SET last_used_at = now() WHERE id = $1
 `
@@ -192,7 +123,7 @@ func (q *Queries) TouchAPIKeyLastUsed(ctx context.Context, id pgtype.UUID) error
 }
 
 const validateAPIKey = `-- name: ValidateAPIKey :one
-SELECT id, workspace_id, name
+SELECT id, workspace_id, name, database_id
 FROM api_keys
 WHERE key_hash = $1
   AND (expires_at IS NULL OR expires_at > now())
@@ -202,11 +133,17 @@ type ValidateAPIKeyRow struct {
 	ID          pgtype.UUID `json:"id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	Name        string      `json:"name"`
+	DatabaseID  pgtype.UUID `json:"database_id"`
 }
 
 func (q *Queries) ValidateAPIKey(ctx context.Context, keyHash string) (ValidateAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, validateAPIKey, keyHash)
 	var i ValidateAPIKeyRow
-	err := row.Scan(&i.ID, &i.WorkspaceID, &i.Name)
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.DatabaseID,
+	)
 	return i, err
 }

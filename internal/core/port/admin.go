@@ -13,6 +13,7 @@ type APIKeyRecord struct {
 	KeyPrefix   string
 	Name        string
 	WorkspaceID uuid.UUID
+	DatabaseID  uuid.UUID
 	CreatedAt   time.Time
 	ExpiresAt   *time.Time
 	LastUsedAt  *time.Time
@@ -28,10 +29,10 @@ type DatabaseInfo struct {
 	CreatedAt      time.Time
 }
 
-// AdminRepository provides access to admin-managed resources (API keys, databases, linking).
+// AdminRepository provides access to admin-managed resources (API keys, databases).
 type AdminRepository interface {
 	// API keys
-	CreateAPIKey(ctx context.Context, workspaceID uuid.UUID, keyHash, keyPrefix, name string) (*APIKeyRecord, error)
+	CreateAPIKey(ctx context.Context, workspaceID, databaseID uuid.UUID, keyHash, keyPrefix, name string) (*APIKeyRecord, error)
 	ListAPIKeys(ctx context.Context, workspaceID uuid.UUID) ([]APIKeyRecord, error)
 	DeleteAPIKey(ctx context.Context, id, workspaceID uuid.UUID) error
 
@@ -39,8 +40,4 @@ type AdminRepository interface {
 	CreateDatabase(ctx context.Context, workspaceID uuid.UUID, name, connType, status string, encryptedURL []byte) (*DatabaseInfo, error)
 	ListDatabases(ctx context.Context, workspaceID uuid.UUID) ([]DatabaseInfo, error)
 	DeleteDatabase(ctx context.Context, id, workspaceID uuid.UUID) error
-
-	// Key-Database linking
-	GrantKeyDatabase(ctx context.Context, keyID, databaseID uuid.UUID) error
-	RevokeKeyDatabase(ctx context.Context, keyID, databaseID uuid.UUID) error
 }

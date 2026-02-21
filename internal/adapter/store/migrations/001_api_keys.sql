@@ -53,10 +53,10 @@ CREATE INDEX idx_databases_workspace ON databases(workspace_id);
 CREATE TABLE api_keys (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    database_id  UUID REFERENCES databases(id) ON DELETE SET NULL,
     name         VARCHAR(255) NOT NULL DEFAULT '',
     key_prefix   VARCHAR(255) NOT NULL UNIQUE,
     key_hash     VARCHAR(255) NOT NULL UNIQUE,
-    created_by   UUID REFERENCES users(id) ON DELETE SET NULL,
     expires_at   TIMESTAMPTZ,
     last_used_at TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -64,16 +64,9 @@ CREATE TABLE api_keys (
 
 CREATE INDEX idx_api_keys_key_hash ON api_keys(key_hash);
 CREATE INDEX idx_api_keys_workspace ON api_keys(workspace_id);
-
-CREATE TABLE api_key_databases (
-    api_key_id  UUID NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
-    database_id UUID NOT NULL REFERENCES databases(id) ON DELETE CASCADE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (api_key_id, database_id)
-);
+CREATE INDEX idx_api_keys_database ON api_keys(database_id);
 
 -- +goose Down
-DROP TABLE IF EXISTS api_key_databases;
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS databases;
 DROP TABLE IF EXISTS workspace_members;

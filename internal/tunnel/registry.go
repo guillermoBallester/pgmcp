@@ -88,17 +88,13 @@ func (r *TunnelRegistry) HandleTunnel(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	// Agent API key must be linked to exactly one database.
-	if len(authResult.DatabaseIDs) == 0 {
+	// Agent API key must be linked to a database.
+	if authResult.DatabaseID == uuid.Nil {
 		http.Error(w, "api key has no database assigned", http.StatusForbidden)
 		return
 	}
-	if len(authResult.DatabaseIDs) > 1 {
-		http.Error(w, "agent api key must be linked to exactly one database", http.StatusForbidden)
-		return
-	}
 
-	databaseID := authResult.DatabaseIDs[0]
+	databaseID := authResult.DatabaseID
 
 	// Check for duplicate
 	r.mu.RLock()

@@ -31,6 +31,18 @@ type Database struct {
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
 
+type QueryLog struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	DatabaseID  pgtype.UUID        `json:"database_id"`
+	KeyID       pgtype.UUID        `json:"key_id"`
+	ToolName    string             `json:"tool_name"`
+	ToolInput   pgtype.Text        `json:"tool_input"`
+	DurationMs  int32              `json:"duration_ms"`
+	IsError     bool               `json:"is_error"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type User struct {
 	ID          pgtype.UUID        `json:"id"`
 	ClerkUserID string             `json:"clerk_user_id"`

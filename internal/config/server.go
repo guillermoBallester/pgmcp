@@ -35,6 +35,10 @@ type ServerConfig struct {
 
 	// Direct connection pool idle TTL.
 	DirectPoolIdleTTL time.Duration
+
+	// Rate limiting (requests per minute).
+	MCPRateLimit   float64
+	AdminRateLimit float64
 }
 
 // LoadServer loads server configuration from environment variables.
@@ -51,6 +55,8 @@ func LoadServer() (*ServerConfig, error) {
 		YamuxKeepAliveInterval: 15 * time.Second,
 		YamuxWriteTimeout:      10 * time.Second,
 		DirectPoolIdleTTL:      10 * time.Minute,
+		MCPRateLimit:           60,
+		AdminRateLimit:         30,
 	}
 
 	if v := os.Getenv("LISTEN_ADDR"); v != "" {
@@ -156,6 +162,22 @@ func LoadServer() (*ServerConfig, error) {
 			return nil, fmt.Errorf("invalid DIRECT_POOL_IDLE_TTL: %w", err)
 		}
 		cfg.DirectPoolIdleTTL = d
+	}
+
+	if v := os.Getenv("MCP_RATE_LIMIT"); v != "" {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("invalid MCP_RATE_LIMIT: must be a positive number")
+		}
+		cfg.MCPRateLimit = n
+	}
+
+	if v := os.Getenv("ADMIN_RATE_LIMIT"); v != "" {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("invalid ADMIN_RATE_LIMIT: must be a positive number")
+		}
+		cfg.AdminRateLimit = n
 	}
 
 	return cfg, nil

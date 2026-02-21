@@ -46,6 +46,7 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *servic
 				MaxAge:           300,
 			}))
 		}
+		api.Use(s.adminLimiter.Middleware)
 		api.Use(s.adminAuth)
 		api.Post("/keys", s.handleCreateKey(adminSvc))
 		api.Get("/keys", s.handleListKeys(adminSvc))
@@ -53,6 +54,7 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *servic
 		api.Post("/databases", s.handleCreateDatabase(adminSvc))
 		api.Get("/databases", s.handleListDatabases(adminSvc))
 		api.Delete("/databases/{id}", s.handleDeleteDatabase(adminSvc))
+		api.Get("/query-logs", s.handleListQueryLogs(adminSvc))
 	})
 
 	s.router = r

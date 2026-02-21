@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func toolCallHooks(logger *slog.Logger) *server.Hooks {
+func toolCallHooks(logger *slog.Logger, auditLogger port.AuditLogger) *server.Hooks {
 	hooks := &server.Hooks{}
 	var starts sync.Map
 
@@ -34,6 +35,29 @@ func toolCallHooks(logger *slog.Logger) *server.Hooks {
 			slog.Duration("duration", duration),
 			slog.Bool("error", isErr),
 		)
+
+		// Audit logging — enqueue entry if auth context is available.
+		if auditLogger != nil {
+			if auth := port.AuthFromContext(ctx); auth != nil {
+				toolInput := ""
+				if args := req.GetArguments(); args != nil {
+					if sql, ok := args["sql"].(string); ok {
+						toolInput = sql
+					} else if tn, ok := args["table_name"].(string); ok {
+						toolInput = tn
+					}
+				}
+				auditLogger.Log(port.AuditEntry{
+					WorkspaceID: auth.WorkspaceID,
+					DatabaseID:  auth.DatabaseID,
+					KeyID:       auth.KeyID,
+					ToolName:    req.Params.Name,
+					ToolInput:   toolInput,
+					DurationMs:  int(duration.Milliseconds()),
+					IsError:     isErr,
+				})
+			}
+		}
 	})
 
 	hooks.AddOnError(func(ctx context.Context, id any, method mcp.MCPMethod, message any, err error) {

@@ -103,7 +103,7 @@ func (m *mockAuthenticator) Authenticate(_ context.Context, _ string) (*port.Aut
 func newTestServer(t *testing.T, repo *mockAdminRepo) *httptest.Server {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	adminSvc := service.NewAdminService(repo, nil, nil, logger)
+	adminSvc := service.NewAdminService(repo, nil, nil, nil, logger)
 
 	tunnelCfg := protocol.ServerTunnelConfig{
 		Heartbeat: protocol.HeartbeatConfig{
@@ -124,6 +124,8 @@ func newTestServer(t *testing.T, repo *mockAdminRepo) *httptest.Server {
 		AdminSecret:       testAdminSecret,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       30 * time.Second,
+		MCPRateLimit:      60,
+		AdminRateLimit:    30,
 	}, registry, nil, &mockAuthenticator{}, adminSvc, nil, logger)
 
 	return httptest.NewServer(srv.router)

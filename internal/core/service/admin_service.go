@@ -13,15 +13,17 @@ import (
 // AdminService provides admin operations for API keys and databases.
 type AdminService struct {
 	repo      port.AdminRepository
+	auditRepo port.AuditRepository     // nil when audit logging disabled
 	encryptor port.Encryptor           // nil when direct connections disabled
 	directSvc *DirectConnectionService // nil when direct connections disabled
 	logger    *slog.Logger
 }
 
 // NewAdminService creates a new AdminService.
-func NewAdminService(repo port.AdminRepository, encryptor port.Encryptor, directSvc *DirectConnectionService, logger *slog.Logger) *AdminService {
+func NewAdminService(repo port.AdminRepository, auditRepo port.AuditRepository, encryptor port.Encryptor, directSvc *DirectConnectionService, logger *slog.Logger) *AdminService {
 	return &AdminService{
 		repo:      repo,
+		auditRepo: auditRepo,
 		encryptor: encryptor,
 		directSvc: directSvc,
 		logger:    logger,
@@ -81,6 +83,17 @@ func (s *AdminService) CreateDatabase(ctx context.Context, workspaceID uuid.UUID
 // ListDatabases returns all databases for a workspace.
 func (s *AdminService) ListDatabases(ctx context.Context, workspaceID uuid.UUID) ([]port.DatabaseInfo, error) {
 	return s.repo.ListDatabases(ctx, workspaceID)
+}
+
+// ListQueryLogs retrieves audit log entries for a workspace.
+func (s *AdminService) ListQueryLogs(ctx context.Context, workspaceID uuid.UUID, databaseID *uuid.UUID, limit int) ([]port.QueryLogRecord, error) {
+	if s.auditRepo == nil {
+		return nil, fmt.Errorf("audit logging not configured")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	return s.auditRepo.ListQueryLogs(ctx, workspaceID, databaseID, limit)
 }
 
 // DeleteDatabase removes a database record and cleans up any cached direct connection.

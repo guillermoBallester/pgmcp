@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -36,6 +37,17 @@ func (s *Server) handleMCP(registry *itunnel.TunnelRegistry, directSvc *service.
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
+
+		// Rate limit by API key.
+		if !s.mcpLimiter.Allow(result.KeyID.String()) {
+			retryAfter := s.mcpLimiter.RetryAfter(result.KeyID.String())
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())+1))
+			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+			return
+		}
+
+		// Attach auth info to context so MCP hooks can access it for audit logging.
+		r = r.WithContext(port.ContextWithAuth(r.Context(), result))
 
 		// Determine which database to route to.
 		if result.DatabaseID == uuid.Nil {

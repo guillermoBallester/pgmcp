@@ -134,7 +134,7 @@ func testLogger() *slog.Logger {
 
 func TestCreateAPIKey_HappyPath(t *testing.T) {
 	repo := &mockAdminRepo{}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	wsID := uuid.New()
 	dbID := uuid.New()
@@ -150,7 +150,7 @@ func TestCreateAPIKey_HappyPath(t *testing.T) {
 
 func TestCreateAPIKey_RepoError(t *testing.T) {
 	repo := &mockAdminRepo{createAPIKeyErr: fmt.Errorf("db error")}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	_, _, err := svc.CreateAPIKey(context.Background(), uuid.New(), uuid.New(), "key")
 	require.Error(t, err)
@@ -161,7 +161,7 @@ func TestCreateAPIKey_RepoError(t *testing.T) {
 
 func TestCreateDatabase_Tunnel(t *testing.T) {
 	repo := &mockAdminRepo{}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	info, err := svc.CreateDatabase(context.Background(), uuid.New(), "my-db", "tunnel", "")
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestCreateDatabase_Tunnel(t *testing.T) {
 
 func TestCreateDatabase_DefaultsToTunnel(t *testing.T) {
 	repo := &mockAdminRepo{}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	_, err := svc.CreateDatabase(context.Background(), uuid.New(), "my-db", "", "")
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestCreateDatabase_DefaultsToTunnel(t *testing.T) {
 func TestCreateDatabase_Direct(t *testing.T) {
 	repo := &mockAdminRepo{}
 	enc := &mockEncryptor{}
-	svc := NewAdminService(repo, enc, nil, testLogger())
+	svc := NewAdminService(repo, nil, enc, nil, testLogger())
 
 	info, err := svc.CreateDatabase(context.Background(), uuid.New(), "my-db", "direct", "postgres://localhost/test")
 	require.NoError(t, err)
@@ -194,7 +194,7 @@ func TestCreateDatabase_Direct(t *testing.T) {
 }
 
 func TestCreateDatabase_Direct_MissingURL(t *testing.T) {
-	svc := NewAdminService(&mockAdminRepo{}, &mockEncryptor{}, nil, testLogger())
+	svc := NewAdminService(&mockAdminRepo{}, nil, &mockEncryptor{}, nil, testLogger())
 
 	_, err := svc.CreateDatabase(context.Background(), uuid.New(), "db", "direct", "")
 	require.Error(t, err)
@@ -202,7 +202,7 @@ func TestCreateDatabase_Direct_MissingURL(t *testing.T) {
 }
 
 func TestCreateDatabase_Direct_NoEncryptor(t *testing.T) {
-	svc := NewAdminService(&mockAdminRepo{}, nil, nil, testLogger())
+	svc := NewAdminService(&mockAdminRepo{}, nil, nil, nil, testLogger())
 
 	_, err := svc.CreateDatabase(context.Background(), uuid.New(), "db", "direct", "postgres://x")
 	require.Error(t, err)
@@ -211,7 +211,7 @@ func TestCreateDatabase_Direct_NoEncryptor(t *testing.T) {
 
 func TestCreateDatabase_Direct_EncryptError(t *testing.T) {
 	enc := &mockEncryptor{encryptErr: fmt.Errorf("bad key")}
-	svc := NewAdminService(&mockAdminRepo{}, enc, nil, testLogger())
+	svc := NewAdminService(&mockAdminRepo{}, nil, enc, nil, testLogger())
 
 	_, err := svc.CreateDatabase(context.Background(), uuid.New(), "db", "direct", "postgres://x")
 	require.Error(t, err)
@@ -222,7 +222,7 @@ func TestCreateDatabase_Direct_EncryptError(t *testing.T) {
 
 func TestDeleteDatabase_HappyPath(t *testing.T) {
 	repo := &mockAdminRepo{}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	err := svc.DeleteDatabase(context.Background(), uuid.New(), uuid.New())
 	require.NoError(t, err)
@@ -231,7 +231,7 @@ func TestDeleteDatabase_HappyPath(t *testing.T) {
 
 func TestDeleteDatabase_RepoError(t *testing.T) {
 	repo := &mockAdminRepo{deleteDatabaseErr: fmt.Errorf("not found")}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	err := svc.DeleteDatabase(context.Background(), uuid.New(), uuid.New())
 	require.Error(t, err)
@@ -243,7 +243,7 @@ func TestListAPIKeys_Delegates(t *testing.T) {
 	wsID := uuid.New()
 	expected := []port.APIKeyRecord{{ID: uuid.New(), Name: "k1"}}
 	repo := &mockAdminRepo{listAPIKeysResult: expected}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	result, err := svc.ListAPIKeys(context.Background(), wsID)
 	require.NoError(t, err)
@@ -254,7 +254,7 @@ func TestListAPIKeys_Delegates(t *testing.T) {
 
 func TestDeleteAPIKey_Delegates(t *testing.T) {
 	repo := &mockAdminRepo{}
-	svc := NewAdminService(repo, nil, nil, testLogger())
+	svc := NewAdminService(repo, nil, nil, nil, testLogger())
 
 	err := svc.DeleteAPIKey(context.Background(), uuid.New(), uuid.New())
 	require.NoError(t, err)

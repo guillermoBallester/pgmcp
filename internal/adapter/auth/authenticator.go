@@ -2,11 +2,14 @@ package auth
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/core/port"
+	"github.com/jackc/pgx/v5"
 )
 
 // Authenticator validates tokens by hashing them and looking up the
@@ -31,8 +34,10 @@ func (a *Authenticator) Authenticate(ctx context.Context, token string) (*port.A
 
 	row, err := a.queries.ValidateAPIKey(ctx, hash)
 	if err != nil {
-		// pgx returns no rows as an error — treat as "not found".
-		return nil, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // key not found
+		}
+		return nil, fmt.Errorf("validating api key: %w", err)
 	}
 
 	keyID, _ := uuid.FromBytes(row.ID.Bytes[:])

@@ -42,7 +42,8 @@ func NewWebhookHandler(pool *pgxpool.Pool, queries *store.Queries, webhookSecret
 // HandleClerkWebhook returns an HTTP handler for POST /api/webhooks/clerk.
 func (h *WebhookHandler) HandleClerkWebhook() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
+		const maxWebhookBody = 1 << 20 // 1 MB
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody))
 		if err != nil {
 			http.Error(w, "failed to read body", http.StatusBadRequest)
 			return

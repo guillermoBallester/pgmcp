@@ -96,14 +96,26 @@ func (r *TunnelRegistry) HandleTunnel(w http.ResponseWriter, req *http.Request) 
 
 	databaseID := authResult.DatabaseID
 
-	// Check for duplicate
-	r.mu.RLock()
-	_, exists := r.tunnels[databaseID]
-	r.mu.RUnlock()
-	if exists {
+	// Atomically check for duplicate and reserve the slot.
+	r.mu.Lock()
+	if _, exists := r.tunnels[databaseID]; exists {
+		r.mu.Unlock()
 		http.Error(w, "tunnel already connected for this database", http.StatusConflict)
 		return
 	}
+	// Reserve with a sentinel entry so no other goroutine can claim this slot.
+	r.tunnels[databaseID] = &tunnelEntry{databaseID: databaseID}
+	r.mu.Unlock()
+
+	// If setup fails below, remove the sentinel.
+	setupOK := false
+	defer func() {
+		if !setupOK {
+			r.mu.Lock()
+			delete(r.tunnels, databaseID)
+			r.mu.Unlock()
+		}
+	}()
 
 	wsConn, err := websocket.Accept(w, req, nil)
 	if err != nil {
@@ -162,7 +174,7 @@ func (r *TunnelRegistry) HandleTunnel(w http.ResponseWriter, req *http.Request) 
 	defer heartbeatCancel()
 	go r.runHeartbeat(heartbeatCtx, session, databaseID)
 
-	// Register in the map.
+	// Replace sentinel with fully initialized entry.
 	entry := &tunnelEntry{
 		databaseID:   databaseID,
 		yamuxSession: session,
@@ -174,6 +186,7 @@ func (r *TunnelRegistry) HandleTunnel(w http.ResponseWriter, req *http.Request) 
 	r.mu.Lock()
 	r.tunnels[databaseID] = entry
 	r.mu.Unlock()
+	setupOK = true
 
 	r.logger.Info("agent connected",
 		slog.String("database_id", databaseID.String()),

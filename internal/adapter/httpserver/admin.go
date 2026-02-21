@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -21,7 +22,7 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(header, "Bearer ")
-		if token != s.cfg.AdminSecret {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminSecret)) != 1 {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -201,7 +202,7 @@ func (s *Server) handleCreateDatabase(adminSvc *service.AdminService) http.Handl
 		info, err := adminSvc.CreateDatabase(r.Context(), wsID, req.Name, req.ConnectionType, req.ConnectionURL)
 		if err != nil {
 			s.logger.Error("failed to create database", slog.String("error", err.Error()))
-			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			http.Error(w, `{"error":"failed to create database"}`, http.StatusBadRequest)
 			return
 		}
 

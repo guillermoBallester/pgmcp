@@ -14,6 +14,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/guillermoBallester/isthmus/internal/adapter/audit"
 	"github.com/guillermoBallester/isthmus/internal/adapter/auth"
 	"github.com/guillermoBallester/isthmus/internal/adapter/crypto"
 	"github.com/guillermoBallester/isthmus/internal/adapter/httpserver"
@@ -72,6 +73,11 @@ func run() error {
 	// Auth adapter.
 	authenticator := auth.NewAuthenticator(queries, logger)
 
+	// Audit logging.
+	auditRepo := store.NewAuditRepository(queries)
+	auditLogger := audit.NewBatchLogger(auditRepo, logger)
+	defer auditLogger.Close()
+
 	// Tunnel registry.
 	registry := itunnel.NewTunnelRegistry(authenticator, cfg.TunnelConfig(), version, logger)
 
@@ -89,7 +95,7 @@ func run() error {
 
 		repo := store.NewDatabaseRepository(queries)
 		mcpFactory := func(explorer *service.ExplorerService, query *service.QueryService) *mcpserver.MCPServer {
-			return mcp.NewServer(version, explorer, query, logger)
+			return mcp.NewServer(version, explorer, query, logger, auditLogger)
 		}
 		directSvc = service.NewDirectConnectionService(repo, enc, mcpFactory, cfg.DirectPoolIdleTTL, logger)
 		defer directSvc.Close()
@@ -98,7 +104,7 @@ func run() error {
 
 	// Admin service.
 	adminRepo := store.NewAdminRepository(queries)
-	adminSvc := service.NewAdminService(adminRepo, enc, directSvc, logger)
+	adminSvc := service.NewAdminService(adminRepo, auditRepo, enc, directSvc, logger)
 
 	// Webhook handler (optional).
 	var webhookHandler *httpserver.WebhookHandler
@@ -113,6 +119,8 @@ func run() error {
 		CORSOrigin:        cfg.CORSOrigin,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
+		MCPRateLimit:      cfg.MCPRateLimit,
+		AdminRateLimit:    cfg.AdminRateLimit,
 	}, registry, directSvc, authenticator, adminSvc, webhookHandler, logger)
 
 	// Second signal during shutdown = hard exit.

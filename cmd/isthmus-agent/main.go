@@ -72,7 +72,7 @@ func run() error {
 	querySvc := service.NewQueryService(validator, executor, logger)
 
 	// MCP server with real tool handlers (same as standalone binary).
-	mcpServer := mcp.NewServer(version, explorerSvc, querySvc, logger)
+	mcpServer := mcp.NewServer(version, explorerSvc, querySvc, logger, nil)
 
 	// Tunnel agent — connects outbound to cloud server.
 	tunnelCfg := protocol.AgentTunnelConfig{

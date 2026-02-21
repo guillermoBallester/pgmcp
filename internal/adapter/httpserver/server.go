@@ -20,6 +20,8 @@ type Config struct {
 	CORSOrigin        string
 	ReadHeaderTimeout time.Duration
 	IdleTimeout       time.Duration
+	MCPRateLimit      float64 // requests per minute per API key
+	AdminRateLimit    float64 // requests per minute per IP
 }
 
 // Server wraps the HTTP server with chi routing, middleware, and graceful shutdown.
@@ -29,6 +31,8 @@ type Server struct {
 	logger         *slog.Logger
 	cfg            Config
 	webhookHandler *WebhookHandler
+	mcpLimiter     *keyRateLimiter
+	adminLimiter   *ipRateLimiter
 }
 
 // New creates a new Server wired with the given dependencies.
@@ -42,6 +46,8 @@ func New(cfg Config, registry *itunnel.TunnelRegistry,
 		logger:         logger,
 		cfg:            cfg,
 		webhookHandler: webhookHandler,
+		mcpLimiter:     newKeyRateLimiter(cfg.MCPRateLimit),
+		adminLimiter:   newIPRateLimiter(cfg.AdminRateLimit),
 	}
 
 	s.setupRoutes(registry, directSvc, authenticator, adminSvc)

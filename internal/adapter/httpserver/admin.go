@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -272,5 +273,77 @@ func (s *Server) handleDeleteDatabase(adminSvc *service.AdminService) http.Handl
 		}
 
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// --- Query log endpoints ---
+
+type queryLogResponse struct {
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	DatabaseID  string `json:"database_id"`
+	KeyID       string `json:"key_id,omitempty"`
+	ToolName    string `json:"tool_name"`
+	ToolInput   string `json:"tool_input,omitempty"`
+	DurationMs  int    `json:"duration_ms"`
+	IsError     bool   `json:"is_error"`
+	CreatedAt   string `json:"created_at"`
+}
+
+func (s *Server) handleListQueryLogs(adminSvc *service.AdminService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wsID, err := uuid.Parse(r.URL.Query().Get("workspace_id"))
+		if err != nil {
+			http.Error(w, `{"error":"invalid or missing workspace_id"}`, http.StatusBadRequest)
+			return
+		}
+
+		var dbID *uuid.UUID
+		if v := r.URL.Query().Get("database_id"); v != "" {
+			parsed, parseErr := uuid.Parse(v)
+			if parseErr != nil {
+				http.Error(w, `{"error":"invalid database_id"}`, http.StatusBadRequest)
+				return
+			}
+			dbID = &parsed
+		}
+
+		limit := 100
+		if v := r.URL.Query().Get("limit"); v != "" {
+			n, parseErr := strconv.Atoi(v)
+			if parseErr != nil || n <= 0 {
+				http.Error(w, `{"error":"invalid limit"}`, http.StatusBadRequest)
+				return
+			}
+			limit = n
+		}
+
+		logs, err := adminSvc.ListQueryLogs(r.Context(), wsID, dbID, limit)
+		if err != nil {
+			s.logger.Error("failed to list query logs", slog.String("error", err.Error()))
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		resp := make([]queryLogResponse, 0, len(logs))
+		for _, l := range logs {
+			entry := queryLogResponse{
+				ID:          l.ID.String(),
+				WorkspaceID: l.WorkspaceID.String(),
+				DatabaseID:  l.DatabaseID.String(),
+				ToolName:    l.ToolName,
+				ToolInput:   l.ToolInput,
+				DurationMs:  l.DurationMs,
+				IsError:     l.IsError,
+				CreatedAt:   l.CreatedAt.Format(time.RFC3339),
+			}
+			if l.KeyID != uuid.Nil {
+				entry.KeyID = l.KeyID.String()
+			}
+			resp = append(resp, entry)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }

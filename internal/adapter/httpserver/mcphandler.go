@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
@@ -37,16 +38,12 @@ func (s *Server) handleMCP(registry *itunnel.TunnelRegistry, directSvc *service.
 		}
 
 		// Determine which database to route to.
-		if len(result.DatabaseIDs) == 0 {
+		if result.DatabaseID == uuid.Nil {
 			http.Error(w, `{"error":"api key has no database assigned"}`, http.StatusForbidden)
 			return
 		}
-		if len(result.DatabaseIDs) > 1 {
-			http.Error(w, `{"error":"api key has multiple databases, specify X-Database-ID header"}`, http.StatusBadRequest)
-			return
-		}
 
-		databaseID := result.DatabaseIDs[0]
+		databaseID := result.DatabaseID
 
 		// Look up per-database MCPServer: tunnel first, then direct.
 		mcpSrv := registry.GetMCPServer(databaseID)

@@ -91,7 +91,7 @@ func run() error {
 		mcpFactory := func(explorer *service.ExplorerService, query *service.QueryService) *mcpserver.MCPServer {
 			return mcp.NewServer(version, explorer, query, logger)
 		}
-		directSvc = service.NewDirectConnectionService(repo, enc, mcpFactory, logger)
+		directSvc = service.NewDirectConnectionService(repo, enc, mcpFactory, cfg.DirectPoolIdleTTL, logger)
 		defer directSvc.Close()
 		logger.Info("direct connection service enabled")
 	}

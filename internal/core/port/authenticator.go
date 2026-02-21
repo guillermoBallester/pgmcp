@@ -11,7 +11,7 @@ import (
 type AuthResult struct {
 	KeyID       uuid.UUID
 	WorkspaceID uuid.UUID
-	DatabaseIDs []uuid.UUID // databases this key has access to
+	DatabaseID  uuid.UUID // the single database this key is linked to
 }
 
 // Authenticator validates a Bearer token from an incoming request.

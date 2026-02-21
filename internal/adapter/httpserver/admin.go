@@ -34,6 +34,7 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 type createKeyRequest struct {
 	Name        string `json:"name"`
 	WorkspaceID string `json:"workspace_id"`
+	DatabaseID  string `json:"database_id"`
 }
 
 type createKeyResponse struct {
@@ -42,6 +43,7 @@ type createKeyResponse struct {
 	KeyPrefix   string `json:"key_prefix"`
 	Name        string `json:"name"`
 	WorkspaceID string `json:"workspace_id"`
+	DatabaseID  string `json:"database_id"`
 }
 
 func (s *Server) handleCreateKey(adminSvc *service.AdminService) http.HandlerFunc {
@@ -58,7 +60,13 @@ func (s *Server) handleCreateKey(adminSvc *service.AdminService) http.HandlerFun
 			return
 		}
 
-		fullKey, record, err := adminSvc.CreateAPIKey(r.Context(), wsID, req.Name)
+		dbID, err := uuid.Parse(req.DatabaseID)
+		if err != nil {
+			http.Error(w, `{"error":"invalid database_id"}`, http.StatusBadRequest)
+			return
+		}
+
+		fullKey, record, err := adminSvc.CreateAPIKey(r.Context(), wsID, dbID, req.Name)
 		if err != nil {
 			s.logger.Error("failed to create api key", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
@@ -71,6 +79,7 @@ func (s *Server) handleCreateKey(adminSvc *service.AdminService) http.HandlerFun
 			KeyPrefix:   record.KeyPrefix,
 			Name:        record.Name,
 			WorkspaceID: record.WorkspaceID.String(),
+			DatabaseID:  record.DatabaseID.String(),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -83,6 +92,7 @@ type keyResponse struct {
 	ID         string  `json:"id"`
 	KeyPrefix  string  `json:"key_prefix"`
 	Name       string  `json:"name"`
+	DatabaseID string  `json:"database_id"`
 	CreatedAt  string  `json:"created_at"`
 	ExpiresAt  *string `json:"expires_at,omitempty"`
 	LastUsedAt *string `json:"last_used_at,omitempty"`
@@ -106,10 +116,11 @@ func (s *Server) handleListKeys(adminSvc *service.AdminService) http.HandlerFunc
 		resp := make([]keyResponse, 0, len(records))
 		for _, rec := range records {
 			kr := keyResponse{
-				ID:        rec.ID.String(),
-				KeyPrefix: rec.KeyPrefix,
-				Name:      rec.Name,
-				CreatedAt: rec.CreatedAt.Format(time.RFC3339),
+				ID:         rec.ID.String(),
+				KeyPrefix:  rec.KeyPrefix,
+				Name:       rec.Name,
+				DatabaseID: rec.DatabaseID.String(),
+				CreatedAt:  rec.CreatedAt.Format(time.RFC3339),
 			}
 			if rec.ExpiresAt != nil {
 				s := rec.ExpiresAt.Format(time.RFC3339)
@@ -255,66 +266,6 @@ func (s *Server) handleDeleteDatabase(adminSvc *service.AdminService) http.Handl
 
 		if err := adminSvc.DeleteDatabase(r.Context(), id, wsID); err != nil {
 			s.logger.Error("failed to delete database", slog.String("error", err.Error()))
-			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-// --- Key-Database linking endpoints ---
-
-type grantKeyDatabaseRequest struct {
-	DatabaseID string `json:"database_id"`
-}
-
-func (s *Server) handleGrantKeyDatabase(adminSvc *service.AdminService) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		keyID, err := uuid.Parse(chi.URLParam(r, "id"))
-		if err != nil {
-			http.Error(w, `{"error":"invalid key id"}`, http.StatusBadRequest)
-			return
-		}
-
-		var req grantKeyDatabaseRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
-			return
-		}
-
-		dbID, err := uuid.Parse(req.DatabaseID)
-		if err != nil {
-			http.Error(w, `{"error":"invalid database_id"}`, http.StatusBadRequest)
-			return
-		}
-
-		if err := adminSvc.GrantKeyDatabase(r.Context(), keyID, dbID); err != nil {
-			s.logger.Error("failed to grant key database", slog.String("error", err.Error()))
-			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func (s *Server) handleRevokeKeyDatabase(adminSvc *service.AdminService) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		keyID, err := uuid.Parse(chi.URLParam(r, "id"))
-		if err != nil {
-			http.Error(w, `{"error":"invalid key id"}`, http.StatusBadRequest)
-			return
-		}
-
-		dbID, err := uuid.Parse(chi.URLParam(r, "db_id"))
-		if err != nil {
-			http.Error(w, `{"error":"invalid database id"}`, http.StatusBadRequest)
-			return
-		}
-
-		if err := adminSvc.RevokeKeyDatabase(r.Context(), keyID, dbID); err != nil {
-			s.logger.Error("failed to revoke key database", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}

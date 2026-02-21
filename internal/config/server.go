@@ -32,6 +32,9 @@ type ServerConfig struct {
 	// Yamux settings.
 	YamuxKeepAliveInterval time.Duration
 	YamuxWriteTimeout      time.Duration
+
+	// Direct connection pool idle TTL.
+	DirectPoolIdleTTL time.Duration
 }
 
 // LoadServer loads server configuration from environment variables.
@@ -47,6 +50,7 @@ func LoadServer() (*ServerConfig, error) {
 		IdleTimeout:            120 * time.Second,
 		YamuxKeepAliveInterval: 15 * time.Second,
 		YamuxWriteTimeout:      10 * time.Second,
+		DirectPoolIdleTTL:      10 * time.Minute,
 	}
 
 	if v := os.Getenv("LISTEN_ADDR"); v != "" {
@@ -144,6 +148,14 @@ func LoadServer() (*ServerConfig, error) {
 			return nil, fmt.Errorf("invalid YAMUX_WRITE_TIMEOUT: %w", err)
 		}
 		cfg.YamuxWriteTimeout = d
+	}
+
+	if v := os.Getenv("DIRECT_POOL_IDLE_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DIRECT_POOL_IDLE_TTL: %w", err)
+		}
+		cfg.DirectPoolIdleTTL = d
 	}
 
 	return cfg, nil

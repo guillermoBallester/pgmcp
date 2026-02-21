@@ -50,8 +50,6 @@ func (s *Server) setupRoutes(registry *itunnel.TunnelRegistry, directSvc *servic
 		api.Post("/keys", s.handleCreateKey(adminSvc))
 		api.Get("/keys", s.handleListKeys(adminSvc))
 		api.Delete("/keys/{id}", s.handleDeleteKey(adminSvc))
-		api.Post("/keys/{id}/databases", s.handleGrantKeyDatabase(adminSvc))
-		api.Delete("/keys/{id}/databases/{db_id}", s.handleRevokeKeyDatabase(adminSvc))
 		api.Post("/databases", s.handleCreateDatabase(adminSvc))
 		api.Get("/databases", s.handleListDatabases(adminSvc))
 		api.Delete("/databases/{id}", s.handleDeleteDatabase(adminSvc))

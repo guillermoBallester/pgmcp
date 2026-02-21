@@ -29,13 +29,13 @@ func NewAdminService(repo port.AdminRepository, encryptor port.Encryptor, direct
 }
 
 // CreateAPIKey generates a new API key, stores its hash, and returns the full key (shown once).
-func (s *AdminService) CreateAPIKey(ctx context.Context, workspaceID uuid.UUID, name string) (string, *port.APIKeyRecord, error) {
+func (s *AdminService) CreateAPIKey(ctx context.Context, workspaceID, databaseID uuid.UUID, name string) (string, *port.APIKeyRecord, error) {
 	fullKey, hash, displayPrefix, err := auth.GenerateKey()
 	if err != nil {
 		return "", nil, fmt.Errorf("generating api key: %w", err)
 	}
 
-	record, err := s.repo.CreateAPIKey(ctx, workspaceID, hash, displayPrefix, name)
+	record, err := s.repo.CreateAPIKey(ctx, workspaceID, databaseID, hash, displayPrefix, name)
 	if err != nil {
 		return "", nil, fmt.Errorf("storing api key: %w", err)
 	}
@@ -94,14 +94,4 @@ func (s *AdminService) DeleteDatabase(ctx context.Context, id, workspaceID uuid.
 	}
 
 	return nil
-}
-
-// GrantKeyDatabase links an API key to a database.
-func (s *AdminService) GrantKeyDatabase(ctx context.Context, keyID, databaseID uuid.UUID) error {
-	return s.repo.GrantKeyDatabase(ctx, keyID, databaseID)
-}
-
-// RevokeKeyDatabase unlinks an API key from a database.
-func (s *AdminService) RevokeKeyDatabase(ctx context.Context, keyID, databaseID uuid.UUID) error {
-	return s.repo.RevokeKeyDatabase(ctx, keyID, databaseID)
 }

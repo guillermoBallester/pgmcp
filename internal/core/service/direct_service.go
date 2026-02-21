@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,8 +29,9 @@ const (
 type MCPServerFactory func(explorer *ExplorerService, query *QueryService) *mcpserver.MCPServer
 
 type directEntry struct {
-	pool      *pgxpool.Pool
-	mcpServer *mcpserver.MCPServer
+	pool       *pgxpool.Pool
+	mcpServer  *mcpserver.MCPServer
+	lastAccess atomic.Int64 // unix nano timestamp
 }
 
 // DirectConnectionService manages direct database connections, lazily created
@@ -40,26 +42,35 @@ type DirectConnectionService struct {
 	encryptor  port.Encryptor
 	mcpFactory MCPServerFactory
 	logger     *slog.Logger
+	idleTTL    time.Duration
 
-	mu       sync.RWMutex
-	entries  map[uuid.UUID]*directEntry
-	inflight singleflight.Group
+	mu        sync.RWMutex
+	entries   map[uuid.UUID]*directEntry
+	inflight  singleflight.Group
+	stopClean context.CancelFunc
 }
 
-// NewDirectConnectionService creates a new service.
+// NewDirectConnectionService creates a new service. Pools idle longer than
+// idleTTL are evicted by a background goroutine.
 func NewDirectConnectionService(
 	repo port.DatabaseRepository,
 	encryptor port.Encryptor,
 	mcpFactory MCPServerFactory,
+	idleTTL time.Duration,
 	logger *slog.Logger,
 ) *DirectConnectionService {
-	return &DirectConnectionService{
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &DirectConnectionService{
 		repo:       repo,
 		encryptor:  encryptor,
 		mcpFactory: mcpFactory,
+		idleTTL:    idleTTL,
 		logger:     logger,
 		entries:    make(map[uuid.UUID]*directEntry),
+		stopClean:  cancel,
 	}
+	go s.cleanupLoop(ctx)
+	return s
 }
 
 // GetMCPServer returns the MCPServer for a direct database. On the first call
@@ -70,6 +81,7 @@ func (s *DirectConnectionService) GetMCPServer(ctx context.Context, databaseID u
 	// Fast path: check cache under read lock.
 	s.mu.RLock()
 	if entry, ok := s.entries[databaseID]; ok {
+		entry.lastAccess.Store(time.Now().UnixNano())
 		s.mu.RUnlock()
 		return entry.mcpServer, nil
 	}
@@ -82,6 +94,7 @@ func (s *DirectConnectionService) GetMCPServer(ctx context.Context, databaseID u
 		// Double-check cache (another goroutine may have completed while we waited).
 		s.mu.RLock()
 		if entry, ok := s.entries[databaseID]; ok {
+			entry.lastAccess.Store(time.Now().UnixNano())
 			s.mu.RUnlock()
 			return entry.mcpServer, nil
 		}
@@ -128,8 +141,10 @@ func (s *DirectConnectionService) connect(ctx context.Context, databaseID uuid.U
 	mcpSrv := s.mcpFactory(explorerSvc, querySvc)
 
 	// Cache under write lock.
+	entry := &directEntry{pool: pool, mcpServer: mcpSrv}
+	entry.lastAccess.Store(time.Now().UnixNano())
 	s.mu.Lock()
-	s.entries[databaseID] = &directEntry{pool: pool, mcpServer: mcpSrv}
+	s.entries[databaseID] = entry
 	s.mu.Unlock()
 
 	// Best-effort status update.
@@ -157,8 +172,43 @@ func (s *DirectConnectionService) Remove(databaseID uuid.UUID) {
 	}
 }
 
-// Close closes all cached connection pools.
+// cleanupLoop periodically evicts idle pools.
+func (s *DirectConnectionService) cleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(s.idleTTL / 2)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.evictIdle()
+		}
+	}
+}
+
+// evictIdle closes pools that haven't been accessed within idleTTL.
+func (s *DirectConnectionService) evictIdle() {
+	cutoff := time.Now().Add(-s.idleTTL).UnixNano()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for id, entry := range s.entries {
+		if entry.lastAccess.Load() < cutoff {
+			entry.pool.Close()
+			delete(s.entries, id)
+			s.logger.Info("idle direct connection evicted",
+				slog.String("database_id", id.String()),
+			)
+		}
+	}
+}
+
+// Close stops the cleanup goroutine and closes all cached connection pools.
 func (s *DirectConnectionService) Close() {
+	s.stopClean()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

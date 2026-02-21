@@ -9,11 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/guillermoBallester/isthmus/internal/adapter/auth"
-	"github.com/guillermoBallester/isthmus/internal/adapter/store"
-	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // adminAuth is middleware that checks the Authorization header for the admin secret.
@@ -25,7 +21,7 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(header, "Bearer ")
-		if token != s.adminSecret {
+		if token != s.cfg.AdminSecret {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -33,13 +29,13 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 	})
 }
 
-// createKeyRequest is the JSON body for POST /api/keys.
+// --- API key endpoints ---
+
 type createKeyRequest struct {
 	Name        string `json:"name"`
 	WorkspaceID string `json:"workspace_id"`
 }
 
-// createKeyResponse is the JSON response for POST /api/keys.
 type createKeyResponse struct {
 	ID          string `json:"id"`
 	Key         string `json:"key"`
@@ -48,8 +44,7 @@ type createKeyResponse struct {
 	WorkspaceID string `json:"workspace_id"`
 }
 
-// handleCreateKey creates a new API key and returns the full key (shown once).
-func (s *Server) handleCreateKey(queries *store.Queries) http.HandlerFunc {
+func (s *Server) handleCreateKey(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createKeyRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -57,37 +52,25 @@ func (s *Server) handleCreateKey(queries *store.Queries) http.HandlerFunc {
 			return
 		}
 
-		var wsID pgtype.UUID
-		if err := wsID.Scan(req.WorkspaceID); err != nil {
+		wsID, err := uuid.Parse(req.WorkspaceID)
+		if err != nil {
 			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
 			return
 		}
 
-		fullKey, hash, displayPrefix, err := auth.GenerateKey()
+		fullKey, record, err := adminSvc.CreateAPIKey(r.Context(), wsID, req.Name)
 		if err != nil {
-			s.logger.Error("failed to generate api key", slog.String("error", err.Error()))
-			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-			return
-		}
-
-		row, err := queries.CreateAPIKey(r.Context(), store.CreateAPIKeyParams{
-			WorkspaceID: wsID,
-			KeyHash:     hash,
-			KeyPrefix:   displayPrefix,
-			Name:        req.Name,
-		})
-		if err != nil {
-			s.logger.Error("failed to insert api key", slog.String("error", err.Error()))
+			s.logger.Error("failed to create api key", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}
 
 		resp := createKeyResponse{
-			ID:          uuidToString(row.ID),
+			ID:          record.ID.String(),
 			Key:         fullKey,
-			KeyPrefix:   row.KeyPrefix,
-			Name:        row.Name,
-			WorkspaceID: uuidToString(row.WorkspaceID),
+			KeyPrefix:   record.KeyPrefix,
+			Name:        record.Name,
+			WorkspaceID: record.WorkspaceID.String(),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -96,7 +79,6 @@ func (s *Server) handleCreateKey(queries *store.Queries) http.HandlerFunc {
 	}
 }
 
-// keyResponse is one item in the GET /api/keys list.
 type keyResponse struct {
 	ID         string  `json:"id"`
 	KeyPrefix  string  `json:"key_prefix"`
@@ -106,42 +88,35 @@ type keyResponse struct {
 	LastUsedAt *string `json:"last_used_at,omitempty"`
 }
 
-// handleListKeys lists API keys for a workspace (without the full key or hash).
-func (s *Server) handleListKeys(queries *store.Queries) http.HandlerFunc {
+func (s *Server) handleListKeys(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		wsIDStr := r.URL.Query().Get("workspace_id")
-		if wsIDStr == "" {
-			http.Error(w, `{"error":"workspace_id query param required"}`, http.StatusBadRequest)
+		wsID, err := uuid.Parse(r.URL.Query().Get("workspace_id"))
+		if err != nil {
+			http.Error(w, `{"error":"invalid or missing workspace_id"}`, http.StatusBadRequest)
 			return
 		}
 
-		var wsID pgtype.UUID
-		if err := wsID.Scan(wsIDStr); err != nil {
-			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
-			return
-		}
-
-		rows, err := queries.ListAPIKeysByWorkspace(r.Context(), wsID)
+		records, err := adminSvc.ListAPIKeys(r.Context(), wsID)
 		if err != nil {
 			s.logger.Error("failed to list api keys", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}
 
-		resp := make([]keyResponse, 0, len(rows))
-		for _, row := range rows {
+		resp := make([]keyResponse, 0, len(records))
+		for _, rec := range records {
 			kr := keyResponse{
-				ID:        uuidToString(row.ID),
-				KeyPrefix: row.KeyPrefix,
-				Name:      row.Name,
-				CreatedAt: formatTimestamptz(row.CreatedAt),
+				ID:        rec.ID.String(),
+				KeyPrefix: rec.KeyPrefix,
+				Name:      rec.Name,
+				CreatedAt: rec.CreatedAt.Format(time.RFC3339),
 			}
-			if row.ExpiresAt.Valid {
-				s := formatTimestamptz(row.ExpiresAt)
+			if rec.ExpiresAt != nil {
+				s := rec.ExpiresAt.Format(time.RFC3339)
 				kr.ExpiresAt = &s
 			}
-			if row.LastUsedAt.Valid {
-				s := formatTimestamptz(row.LastUsedAt)
+			if rec.LastUsedAt != nil {
+				s := rec.LastUsedAt.Format(time.RFC3339)
 				kr.LastUsedAt = &s
 			}
 			resp = append(resp, kr)
@@ -152,28 +127,21 @@ func (s *Server) handleListKeys(queries *store.Queries) http.HandlerFunc {
 	}
 }
 
-// handleDeleteKey deletes an API key by ID (scoped to workspace).
-func (s *Server) handleDeleteKey(queries *store.Queries) http.HandlerFunc {
+func (s *Server) handleDeleteKey(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
-		wsIDStr := r.URL.Query().Get("workspace_id")
-
-		var id pgtype.UUID
-		if err := id.Scan(idStr); err != nil {
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
 			http.Error(w, `{"error":"invalid key id"}`, http.StatusBadRequest)
 			return
 		}
 
-		var wsID pgtype.UUID
-		if err := wsID.Scan(wsIDStr); err != nil {
+		wsID, err := uuid.Parse(r.URL.Query().Get("workspace_id"))
+		if err != nil {
 			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
 			return
 		}
 
-		if err := queries.DeleteAPIKey(r.Context(), store.DeleteAPIKeyParams{
-			ID:          id,
-			WorkspaceID: wsID,
-		}); err != nil {
+		if err := adminSvc.DeleteAPIKey(r.Context(), id, wsID); err != nil {
 			s.logger.Error("failed to delete api key", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
@@ -183,40 +151,13 @@ func (s *Server) handleDeleteKey(queries *store.Queries) http.HandlerFunc {
 	}
 }
 
-func uuidToString(u pgtype.UUID) string {
-	if !u.Valid {
-		return ""
-	}
-	b := u.Bytes
-	return strings.Join([]string{
-		hex(b[0:4]), hex(b[4:6]), hex(b[6:8]), hex(b[8:10]), hex(b[10:16]),
-	}, "-")
-}
-
-func hex(b []byte) string {
-	const hextable = "0123456789abcdef"
-	dst := make([]byte, len(b)*2)
-	for i, v := range b {
-		dst[i*2] = hextable[v>>4]
-		dst[i*2+1] = hextable[v&0x0f]
-	}
-	return string(dst)
-}
-
-func formatTimestamptz(ts pgtype.Timestamptz) string {
-	if !ts.Valid {
-		return ""
-	}
-	return ts.Time.Format(time.RFC3339)
-}
-
-// --- Database management endpoints ---
+// --- Database endpoints ---
 
 type createDatabaseRequest struct {
 	WorkspaceID    string `json:"workspace_id"`
 	Name           string `json:"name"`
-	ConnectionType string `json:"connection_type"` // "tunnel" or "direct"
-	ConnectionURL  string `json:"connection_url"`  // required when connection_type="direct"
+	ConnectionType string `json:"connection_type"`
+	ConnectionURL  string `json:"connection_url"`
 }
 
 type databaseResponse struct {
@@ -228,9 +169,7 @@ type databaseResponse struct {
 	CreatedAt      string `json:"created_at"`
 }
 
-// handleCreateDatabase creates a new database record.
-// For direct connections, encrypts and stores the connection URL.
-func (s *Server) handleCreateDatabase(queries *store.Queries, enc port.Encryptor) http.HandlerFunc {
+func (s *Server) handleCreateDatabase(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createDatabaseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -241,116 +180,57 @@ func (s *Server) handleCreateDatabase(queries *store.Queries, enc port.Encryptor
 			http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
 			return
 		}
-		if req.ConnectionType == "" {
-			req.ConnectionType = "tunnel"
-		}
 
-		var wsID pgtype.UUID
-		if err := wsID.Scan(req.WorkspaceID); err != nil {
+		wsID, err := uuid.Parse(req.WorkspaceID)
+		if err != nil {
 			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
 			return
 		}
 
-		var resp databaseResponse
-
-		if req.ConnectionType == "direct" {
-			if req.ConnectionURL == "" {
-				http.Error(w, `{"error":"connection_url is required for direct connections"}`, http.StatusBadRequest)
-				return
-			}
-			if enc == nil {
-				http.Error(w, `{"error":"direct connections not enabled (ENCRYPTION_KEY not set)"}`, http.StatusBadRequest)
-				return
-			}
-
-			encrypted, err := enc.Encrypt([]byte(req.ConnectionURL))
-			if err != nil {
-				s.logger.Error("failed to encrypt connection URL", slog.String("error", err.Error()))
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-				return
-			}
-
-			row, err := queries.CreateDatabaseWithURL(r.Context(), store.CreateDatabaseWithURLParams{
-				WorkspaceID:            wsID,
-				Name:                   req.Name,
-				ConnectionType:         "direct",
-				EncryptedConnectionUrl: encrypted,
-				Status:                 "ready",
-			})
-			if err != nil {
-				s.logger.Error("failed to create database", slog.String("error", err.Error()))
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-				return
-			}
-
-			resp = databaseResponse{
-				ID:             uuidToString(row.ID),
-				WorkspaceID:    uuidToString(row.WorkspaceID),
-				Name:           row.Name,
-				ConnectionType: row.ConnectionType,
-				Status:         row.Status,
-				CreatedAt:      formatTimestamptz(row.CreatedAt),
-			}
-		} else {
-			row, err := queries.CreateDatabase(r.Context(), store.CreateDatabaseParams{
-				WorkspaceID:    wsID,
-				Name:           req.Name,
-				ConnectionType: req.ConnectionType,
-				Status:         "pending",
-			})
-			if err != nil {
-				s.logger.Error("failed to create database", slog.String("error", err.Error()))
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-				return
-			}
-
-			resp = databaseResponse{
-				ID:             uuidToString(row.ID),
-				WorkspaceID:    uuidToString(row.WorkspaceID),
-				Name:           row.Name,
-				ConnectionType: row.ConnectionType,
-				Status:         row.Status,
-				CreatedAt:      formatTimestamptz(row.CreatedAt),
-			}
+		info, err := adminSvc.CreateDatabase(r.Context(), wsID, req.Name, req.ConnectionType, req.ConnectionURL)
+		if err != nil {
+			s.logger.Error("failed to create database", slog.String("error", err.Error()))
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(databaseResponse{
+			ID:             info.ID.String(),
+			WorkspaceID:    info.WorkspaceID.String(),
+			Name:           info.Name,
+			ConnectionType: info.ConnectionType,
+			Status:         info.Status,
+			CreatedAt:      info.CreatedAt.Format(time.RFC3339),
+		})
 	}
 }
 
-// handleListDatabases lists databases for a workspace.
-func (s *Server) handleListDatabases(queries *store.Queries) http.HandlerFunc {
+func (s *Server) handleListDatabases(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		wsIDStr := r.URL.Query().Get("workspace_id")
-		if wsIDStr == "" {
-			http.Error(w, `{"error":"workspace_id query param required"}`, http.StatusBadRequest)
+		wsID, err := uuid.Parse(r.URL.Query().Get("workspace_id"))
+		if err != nil {
+			http.Error(w, `{"error":"invalid or missing workspace_id"}`, http.StatusBadRequest)
 			return
 		}
 
-		var wsID pgtype.UUID
-		if err := wsID.Scan(wsIDStr); err != nil {
-			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
-			return
-		}
-
-		rows, err := queries.ListDatabasesByWorkspace(r.Context(), wsID)
+		infos, err := adminSvc.ListDatabases(r.Context(), wsID)
 		if err != nil {
 			s.logger.Error("failed to list databases", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}
 
-		resp := make([]databaseResponse, 0, len(rows))
-		for _, row := range rows {
+		resp := make([]databaseResponse, 0, len(infos))
+		for _, info := range infos {
 			resp = append(resp, databaseResponse{
-				ID:             uuidToString(row.ID),
-				WorkspaceID:    uuidToString(row.WorkspaceID),
-				Name:           row.Name,
-				ConnectionType: row.ConnectionType,
-				Status:         row.Status,
-				CreatedAt:      formatTimestamptz(row.CreatedAt),
+				ID:             info.ID.String(),
+				WorkspaceID:    info.WorkspaceID.String(),
+				Name:           info.Name,
+				ConnectionType: info.ConnectionType,
+				Status:         info.Status,
+				CreatedAt:      info.CreatedAt.Format(time.RFC3339),
 			})
 		}
 
@@ -359,56 +239,40 @@ func (s *Server) handleListDatabases(queries *store.Queries) http.HandlerFunc {
 	}
 }
 
-// handleDeleteDatabase deletes a database record and cleans up any cached direct connection.
-func (s *Server) handleDeleteDatabase(queries *store.Queries, directSvc *service.DirectConnectionService) http.HandlerFunc {
+func (s *Server) handleDeleteDatabase(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
-		wsIDStr := r.URL.Query().Get("workspace_id")
-
-		var id pgtype.UUID
-		if err := id.Scan(idStr); err != nil {
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
 			http.Error(w, `{"error":"invalid database id"}`, http.StatusBadRequest)
 			return
 		}
 
-		var wsID pgtype.UUID
-		if err := wsID.Scan(wsIDStr); err != nil {
+		wsID, err := uuid.Parse(r.URL.Query().Get("workspace_id"))
+		if err != nil {
 			http.Error(w, `{"error":"invalid workspace_id"}`, http.StatusBadRequest)
 			return
 		}
 
-		if err := queries.DeleteDatabase(r.Context(), store.DeleteDatabaseParams{
-			ID:          id,
-			WorkspaceID: wsID,
-		}); err != nil {
+		if err := adminSvc.DeleteDatabase(r.Context(), id, wsID); err != nil {
 			s.logger.Error("failed to delete database", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
-		}
-
-		// Clean up cached direct connection if any.
-		if directSvc != nil {
-			if dbUUID, err := uuid.Parse(idStr); err == nil {
-				directSvc.Remove(dbUUID)
-			}
 		}
 
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// --- API key → database linking endpoints ---
+// --- Key-Database linking endpoints ---
 
 type grantKeyDatabaseRequest struct {
 	DatabaseID string `json:"database_id"`
 }
 
-// handleGrantKeyDatabase links an API key to a database.
-func (s *Server) handleGrantKeyDatabase(queries *store.Queries) http.HandlerFunc {
+func (s *Server) handleGrantKeyDatabase(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		keyIDStr := chi.URLParam(r, "id")
-		var keyID pgtype.UUID
-		if err := keyID.Scan(keyIDStr); err != nil {
+		keyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
 			http.Error(w, `{"error":"invalid key id"}`, http.StatusBadRequest)
 			return
 		}
@@ -419,16 +283,13 @@ func (s *Server) handleGrantKeyDatabase(queries *store.Queries) http.HandlerFunc
 			return
 		}
 
-		var dbID pgtype.UUID
-		if err := dbID.Scan(req.DatabaseID); err != nil {
+		dbID, err := uuid.Parse(req.DatabaseID)
+		if err != nil {
 			http.Error(w, `{"error":"invalid database_id"}`, http.StatusBadRequest)
 			return
 		}
 
-		if err := queries.GrantAPIKeyDatabase(r.Context(), store.GrantAPIKeyDatabaseParams{
-			ApiKeyID:   keyID,
-			DatabaseID: dbID,
-		}); err != nil {
+		if err := adminSvc.GrantKeyDatabase(r.Context(), keyID, dbID); err != nil {
 			s.logger.Error("failed to grant key database", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
@@ -438,28 +299,21 @@ func (s *Server) handleGrantKeyDatabase(queries *store.Queries) http.HandlerFunc
 	}
 }
 
-// handleRevokeKeyDatabase unlinks an API key from a database.
-func (s *Server) handleRevokeKeyDatabase(queries *store.Queries) http.HandlerFunc {
+func (s *Server) handleRevokeKeyDatabase(adminSvc *service.AdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		keyIDStr := chi.URLParam(r, "id")
-		dbIDStr := chi.URLParam(r, "db_id")
-
-		var keyID pgtype.UUID
-		if err := keyID.Scan(keyIDStr); err != nil {
+		keyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
 			http.Error(w, `{"error":"invalid key id"}`, http.StatusBadRequest)
 			return
 		}
 
-		var dbID pgtype.UUID
-		if err := dbID.Scan(dbIDStr); err != nil {
+		dbID, err := uuid.Parse(chi.URLParam(r, "db_id"))
+		if err != nil {
 			http.Error(w, `{"error":"invalid database id"}`, http.StatusBadRequest)
 			return
 		}
 
-		if err := queries.RevokeAPIKeyDatabase(r.Context(), store.RevokeAPIKeyDatabaseParams{
-			ApiKeyID:   keyID,
-			DatabaseID: dbID,
-		}); err != nil {
+		if err := adminSvc.RevokeKeyDatabase(r.Context(), keyID, dbID); err != nil {
 			s.logger.Error("failed to revoke key database", slog.String("error", err.Error()))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return

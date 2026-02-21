@@ -21,8 +21,8 @@ import (
 	"github.com/guillermoBallester/isthmus/internal/adapter/store"
 	"github.com/guillermoBallester/isthmus/internal/adapter/store/migrations"
 	"github.com/guillermoBallester/isthmus/internal/config"
+	"github.com/guillermoBallester/isthmus/internal/core/port"
 	"github.com/guillermoBallester/isthmus/internal/core/service"
-	"github.com/guillermoBallester/isthmus/internal/protocol"
 	itunnel "github.com/guillermoBallester/isthmus/internal/tunnel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -54,7 +54,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// Connect to Supabase.
+	// Database.
 	pool, err := pgxpool.New(ctx, cfg.SupabaseDBURL)
 	if err != nil {
 		return fmt.Errorf("connecting to supabase: %w", err)
@@ -62,44 +62,30 @@ func run() error {
 	defer pool.Close()
 	logger.Info("supabase database connected")
 
-	// Run goose migrations.
 	if err := runMigrations(cfg.SupabaseDBURL); err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 	logger.Info("database migrations applied")
 
 	queries := store.New(pool)
+
+	// Auth adapter.
 	authenticator := auth.NewAuthenticator(queries, logger)
 
-	// Tunnel config.
-	tunnelCfg := protocol.ServerTunnelConfig{
-		Heartbeat: protocol.HeartbeatConfig{
-			Interval:      cfg.HeartbeatInterval,
-			Timeout:       cfg.HeartbeatTimeout,
-			MissThreshold: cfg.HeartbeatMissThreshold,
-		},
-		HandshakeTimeout: cfg.HandshakeTimeout,
-		Yamux: protocol.YamuxConfig{
-			KeepAliveInterval:      cfg.YamuxKeepAliveInterval,
-			ConnectionWriteTimeout: cfg.YamuxWriteTimeout,
-		},
-	}
+	// Tunnel registry.
+	registry := itunnel.NewTunnelRegistry(authenticator, cfg.TunnelConfig(), version, logger)
 
-	// TunnelRegistry — manages multiple simultaneous agent tunnels.
-	registry := itunnel.NewTunnelRegistry(authenticator, tunnelCfg, version, logger)
-
-	// Direct connection service — manages direct database connections (no agent needed).
-	// Only enabled when encryption key is configured.
+	// Direct connection service (optional).
 	var (
-		enc       *crypto.AESEncryptor
+		enc       port.Encryptor
 		directSvc *service.DirectConnectionService
 	)
 	if cfg.EncryptionKey != "" {
-		var encErr error
-		enc, encErr = crypto.NewAESEncryptor(cfg.EncryptionKey)
+		aesEnc, encErr := crypto.NewAESEncryptor(cfg.EncryptionKey)
 		if encErr != nil {
 			return fmt.Errorf("creating encryptor: %w", encErr)
 		}
+		enc = aesEnc
 
 		repo := store.NewDatabaseRepository(queries)
 		mcpFactory := func(explorer *service.ExplorerService, query *service.QueryService) *mcpserver.MCPServer {
@@ -110,17 +96,24 @@ func run() error {
 		logger.Info("direct connection service enabled")
 	}
 
-	// Clerk webhook handler (optional).
+	// Admin service.
+	adminRepo := store.NewAdminRepository(queries)
+	adminSvc := service.NewAdminService(adminRepo, enc, directSvc, logger)
+
+	// Webhook handler (optional).
 	var webhookHandler *httpserver.WebhookHandler
 	if cfg.ClerkWebhookSecret != "" {
 		webhookHandler = httpserver.NewWebhookHandler(pool, queries, cfg.ClerkWebhookSecret, logger)
 	}
 
-	// HTTP server with chi routing and middleware.
-	srv := httpserver.New(cfg.ListenAddr, registry, directSvc, authenticator, config.HTTPConfig{
+	// HTTP server.
+	srv := httpserver.New(httpserver.Config{
+		ListenAddr:        cfg.ListenAddr,
+		AdminSecret:       cfg.AdminSecret,
+		CORSOrigin:        cfg.CORSOrigin,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-	}, queries, enc, cfg.AdminSecret, cfg.CORSOrigin, webhookHandler, logger)
+	}, registry, directSvc, authenticator, adminSvc, webhookHandler, logger)
 
 	// Second signal during shutdown = hard exit.
 	go func() {
@@ -136,13 +129,10 @@ func run() error {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	// Component: HTTP server.
 	g.Go(func() error {
 		return srv.ListenAndServe()
 	})
 
-	// Shutdown trigger: when ctx is cancelled (signal or component failure),
-	// gracefully stop the HTTP server.
 	g.Go(func() error {
 		<-ctx.Done()
 		logger.Info("shutting down")
@@ -151,8 +141,6 @@ func run() error {
 		return srv.Shutdown(shutdownCtx)
 	})
 
-	// Wait for all goroutines. The first non-nil error cancels ctx,
-	// which triggers the shutdown goroutine.
 	if err := g.Wait(); err != nil {
 		return err
 	}

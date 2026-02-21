@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/guillermoBallester/isthmus/internal/protocol"
 )
 
 // ServerConfig holds configuration for the cloud server.
@@ -145,4 +147,20 @@ func LoadServer() (*ServerConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// TunnelConfig returns the protocol tunnel config assembled from flat fields.
+func (c *ServerConfig) TunnelConfig() protocol.ServerTunnelConfig {
+	return protocol.ServerTunnelConfig{
+		Heartbeat: protocol.HeartbeatConfig{
+			Interval:      c.HeartbeatInterval,
+			Timeout:       c.HeartbeatTimeout,
+			MissThreshold: c.HeartbeatMissThreshold,
+		},
+		HandshakeTimeout: c.HandshakeTimeout,
+		Yamux: protocol.YamuxConfig{
+			KeepAliveInterval:      c.YamuxKeepAliveInterval,
+			ConnectionWriteTimeout: c.YamuxWriteTimeout,
+		},
+	}
 }

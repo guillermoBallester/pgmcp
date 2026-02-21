@@ -49,13 +49,10 @@ func (h *WebhookHandler) HandleClerkWebhook() http.HandlerFunc {
 			return
 		}
 
-		// Verify Svix signature.
-		headers := http.Header{
-			"svix-id":        r.Header.Values("svix-id"),
-			"svix-timestamp": r.Header.Values("svix-timestamp"),
-			"svix-signature": r.Header.Values("svix-signature"),
-		}
-		if err := h.wh.Verify(body, headers); err != nil {
+		// Verify Svix signature — pass original headers directly.
+		// Constructing a new http.Header with lowercase keys would break
+		// because Go's Header.Get canonicalises to "Svix-Id" etc.
+		if err := h.wh.Verify(body, r.Header); err != nil {
 			h.logger.Warn("webhook signature verification failed",
 				slog.String("error", err.Error()),
 			)
